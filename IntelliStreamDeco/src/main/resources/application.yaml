@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: IntelliStreamDeco
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/intellistream_deco
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+server:
+  port: 8081
