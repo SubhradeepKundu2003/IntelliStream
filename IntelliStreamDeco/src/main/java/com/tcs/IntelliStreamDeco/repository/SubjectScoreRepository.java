@@ -11,4 +11,5 @@ import java.util.UUID;
 public interface SubjectScoreRepository extends JpaRepository<SubjectScore, UUID> {
 
     List<SubjectScore> findByTraineeId(String traineeId);
+    List<SubjectScore> findByBatchName(String batchName);
 }

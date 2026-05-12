@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class SubjectScoreRequest {
+    private String batchName;
     private String traineeId;
     private String traineeName;
     private String subjectName;

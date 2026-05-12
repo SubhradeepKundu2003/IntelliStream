@@ -18,6 +18,7 @@ public class DpiService {
     public DpiRecord save(DpiRequest request) {
         DpiRecord record = new DpiRecord(
                 request.getTraineeId(),
+                request.getBatchName(),
                 request.getTraineeName(),
                 request.getDpi()
         );
@@ -30,5 +31,9 @@ public class DpiService {
 
     public Optional<DpiRecord> getByTraineeId(String traineeId) {
         return repository.findById(traineeId);
+    }
+
+    public List<DpiRecord> getByBatchName(String batchName) {
+        return repository.findByBatchName(batchName);
     }
 }

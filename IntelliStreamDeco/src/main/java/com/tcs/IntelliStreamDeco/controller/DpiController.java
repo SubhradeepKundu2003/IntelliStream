@@ -33,4 +33,9 @@ public class DpiController {
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
+
+    @GetMapping("/batch/{batchName}")
+    public ResponseEntity<List<DpiRecord>> getByBatchName(@PathVariable String batchName) {
+        return ResponseEntity.ok(service.getByBatchName(batchName));
+    }
 }

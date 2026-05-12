@@ -6,6 +6,7 @@ class BatchResponse(BaseModel):
     id: int
     batch_name: str
     subjects: List[str]
+    trainee_count: int
     synced_at: str
     model_config = {"from_attributes": True}
 
@@ -13,6 +14,7 @@ class BatchResponse(BaseModel):
 class DpiRecordResponse(BaseModel):
     id: int
     trainee_id: str
+    batch_name: str
     trainee_name: str
     dpi: float
     synced_at: str
@@ -22,6 +24,7 @@ class DpiRecordResponse(BaseModel):
 class SubjectScoreResponse(BaseModel):
     id: int
     external_id: str
+    batch_name: str
     trainee_id: str
     trainee_name: str
     subject_name: str

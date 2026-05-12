@@ -34,6 +34,7 @@ async def run_sync() -> dict:
             db.add(SyncedBatch(
                 batch_name=b["batchName"],
                 subjects_json=json.dumps(b.get("subjects") or []),
+                trainee_count=b.get("traineeCount") or 0,
                 synced_at=now,
             ))
 
@@ -41,6 +42,7 @@ async def run_sync() -> dict:
         for d in dpi_raw:
             db.add(SyncedDpiRecord(
                 trainee_id=d["traineeId"],
+                batch_name=d["batchName"],
                 trainee_name=d["traineeName"],
                 dpi=d["dpi"],
                 synced_at=now,
@@ -50,6 +52,7 @@ async def run_sync() -> dict:
         for s in scores_raw:
             db.add(SyncedSubjectScore(
                 external_id=str(s["id"]),
+                batch_name=s["batchName"],
                 trainee_id=s["traineeId"],
                 trainee_name=s["traineeName"],
                 subject_name=s["subjectName"],

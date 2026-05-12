@@ -16,7 +16,7 @@ public class BatchService {
     private final BatchRepository repository;
 
     public Batch save(BatchRequest request) {
-        Batch batch = new Batch(request.getBatchName(), request.getSubjects());
+        Batch batch = new Batch(request.getBatchName(), request.getTraineeCount(), request.getSubjects());
         return repository.save(batch);
     }
 
@@ -30,6 +30,7 @@ public class BatchService {
 
     public Optional<Batch> update(String batchName, BatchRequest request) {
         return repository.findById(batchName).map(batch -> {
+            batch.setTraineeCount(request.getTraineeCount());
             batch.setSubjects(request.getSubjects());
             return repository.save(batch);
         });

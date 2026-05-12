@@ -23,6 +23,7 @@ def _batch_resp(b: SyncedBatch) -> BatchResponse:
         id=b.id,
         batch_name=b.batch_name,
         subjects=json.loads(b.subjects_json),
+        trainee_count=b.trainee_count,
         synced_at=b.synced_at,
     )
 
@@ -41,8 +42,15 @@ def get_batch(batch_name: str, db: Session = Depends(get_db), _=Depends(get_curr
 
 
 @router.get("/dpi", response_model=list[DpiRecordResponse])
-def list_dpi(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    return db.query(SyncedDpiRecord).all()
+def list_dpi(
+    batch_name: str | None = None,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    q = db.query(SyncedDpiRecord)
+    if batch_name:
+        q = q.filter(SyncedDpiRecord.batch_name == batch_name)
+    return q.all()
 
 
 @router.get("/dpi/{trainee_id}", response_model=DpiRecordResponse)

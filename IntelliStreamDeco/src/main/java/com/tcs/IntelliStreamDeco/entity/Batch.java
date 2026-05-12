@@ -19,6 +19,9 @@ public class Batch {
     @Column(name = "batch_name")
     private String batchName;
 
+    @Column(name = "trainee_count", nullable = false)
+    private int traineeCount = 0;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "batch_subjects",

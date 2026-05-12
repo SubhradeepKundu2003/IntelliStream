@@ -1,7 +1,15 @@
 import axios from 'axios';
 import type { UserResponse } from '../types/auth';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
-import type { BatchStream, StreamCreate, WeightsSet } from '../types/streams';
+import type { BatchStream, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightsSet } from '../types/streams';
+import type { Batch, BatchStatus, ImportResult, Trainee } from '../types/trainees';
+import type {
+  BRCreate,
+  BRResponse,
+  BRSummary,
+  BRUpdate,
+  ExcelImportResult,
+} from '../types/business_requirements';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
 
@@ -99,10 +107,62 @@ export const streamsApi = {
                 api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/weights`, body),
 };
 
+export const brApi = {
+  list: (batchName?: string) =>
+    api.get<BRSummary[]>('/business-requirements', {
+      params: batchName ? { batch_name: batchName } : undefined,
+    }),
+  get: (id: number) =>
+    api.get<BRResponse>(`/business-requirements/${id}`),
+  create: (body: BRCreate) =>
+    api.post<BRResponse>('/business-requirements', body),
+  update: (id: number, body: BRUpdate) =>
+    api.put<BRResponse>(`/business-requirements/${id}`, body),
+  remove: (id: number) =>
+    api.delete(`/business-requirements/${id}`),
+  downloadTemplate: () =>
+    api.get<Blob>('/business-requirements/excel-template', { responseType: 'blob' }),
+  parseExcel: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<ExcelImportResult>('/business-requirements/parse-excel', form);
+  },
+};
+
+export const streamTemplatesApi = {
+  list:        () => api.get<StreamTemplate[]>('/streams'),
+  get:         (id: number) => api.get<StreamTemplateDetail>(`/streams/${id}`),
+  create:      (body: { name: string; description?: string; is_mandatory: boolean; intake_pct: number }) =>
+                 api.post<StreamTemplate>('/streams', body),
+  update:      (id: number, body: Partial<Pick<StreamTemplate, 'name' | 'description' | 'is_mandatory' | 'intake_pct' | 'is_active'>>) =>
+                 api.put<StreamTemplate>(`/streams/${id}`, body),
+  remove:      (id: number) => api.delete(`/streams/${id}`),
+  getSubjects: (id: number) => api.get<SubjectWeight[]>(`/streams/${id}/subjects`),
+  setSubjects: (id: number, body: { subject_name: string; weight_pct: number }[]) =>
+                 api.post<SubjectWeight[]>(`/streams/${id}/subjects`, body),
+};
+
+export const batchesApi = {
+  list:     () => api.get<Batch[]>('/batches'),
+  create:   (body: { name: string; year: number; quarter: number }) =>
+              api.post<Batch>('/batches', body),
+  update:   (id: number, body: { name?: string; status?: BatchStatus }) =>
+              api.patch<Batch>(`/batches/${id}`, body),
+  trainees: (id: number) => api.get<Trainee[]>(`/batches/${id}/trainees`),
+  import:   (id: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<ImportResult>(`/batches/${id}/trainees/import`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+};
+
 export const syncApi = {
-  batches:       () => api.get<SyncedBatch[]>('/sync/batches'),
-  dpi:           () => api.get<SyncedDpiRecord[]>('/sync/dpi'),
-  scores:        () => api.get<SyncedSubjectScore[]>('/sync/scores'),
-  status:        () => api.get<SyncStatus>('/sync/status'),
-  trigger:       () => api.post<SyncTriggerResponse>('/sync/trigger'),
+  batches:          () => api.get<SyncedBatch[]>('/sync/batches'),
+  dpi:              (batchName?: string) =>
+                      api.get<SyncedDpiRecord[]>('/sync/dpi', { params: batchName ? { batch_name: batchName } : undefined }),
+  scores:           () => api.get<SyncedSubjectScore[]>('/sync/scores'),
+  status:           () => api.get<SyncStatus>('/sync/status'),
+  trigger:          () => api.post<SyncTriggerResponse>('/sync/trigger'),
 };

@@ -31,6 +31,23 @@ function SearchInput({ value, onChange, placeholder }: { value: string; onChange
   );
 }
 
+// ── Batch filter dropdown ────────────────────────────────────────────
+function BatchFilter({ batches, value, onChange }: { batches: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="mb-4 px-3 py-2 text-sm rounded-lg border outline-none transition-colors cursor-pointer
+        bg-tcs-white text-tcs-gray-900 dark:bg-tcs-gray-800 dark:text-tcs-gray-100
+        border-tcs-gray-300 dark:border-tcs-gray-700
+        focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
+    >
+      <option value="">All Batches</option>
+      {batches.map((b) => <option key={b} value={b}>{b}</option>)}
+    </select>
+  );
+}
+
 // ── Score chip ───────────────────────────────────────────────────────
 function ScoreChip({ value }: { value: number }) {
   const pct = Math.round(value);
@@ -62,7 +79,7 @@ function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
             <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/50">
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch Name</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Subjects</th>
-              <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Count</th>
+              <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Trainees</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +117,7 @@ function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-tcs-gray-500 dark:text-tcs-gray-400">
-                    {b.subjects.length}
+                    {b.trainee_count}
                   </td>
                 </tr>
               ))
@@ -113,20 +130,30 @@ function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
 }
 
 // ── DPI Records tab ──────────────────────────────────────────────────
-function DpiTable({ rows }: { rows: SyncedDpiRecord[] }) {
+function DpiTable({ rows, batchNames }: { rows: SyncedDpiRecord[]; batchNames: string[] }) {
   const [search, setSearch] = useState('');
-  const filtered = rows.filter((r) =>
-    r.trainee_id.toLowerCase().includes(search.toLowerCase()) ||
-    r.trainee_name.toLowerCase().includes(search.toLowerCase())
-  );
+  const [batchFilter, setBatchFilter] = useState('');
+  const filtered = rows.filter((r) => {
+    const matchesBatch = !batchFilter || r.batch_name === batchFilter;
+    const q = search.toLowerCase();
+    const matchesSearch = !q ||
+      r.trainee_id.toLowerCase().includes(q) ||
+      r.trainee_name.toLowerCase().includes(q) ||
+      r.batch_name.toLowerCase().includes(q);
+    return matchesBatch && matchesSearch;
+  });
 
   return (
     <>
-      <SearchInput value={search} onChange={setSearch} placeholder="Search by ID or name…" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <BatchFilter batches={batchNames} value={batchFilter} onChange={setBatchFilter} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by ID or name…" />
+      </div>
       <div className="rounded-xl border overflow-hidden bg-tcs-white dark:bg-tcs-gray-800 border-tcs-gray-200 dark:border-tcs-gray-700">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/50">
+              <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Trainee ID</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Name</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">DPI Score</th>
@@ -135,8 +162,8 @@ function DpiTable({ rows }: { rows: SyncedDpiRecord[] }) {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="text-center py-12 text-tcs-gray-400">
-                  {search ? 'No records match your search.' : 'No DPI records found.'}
+                <td colSpan={4} className="text-center py-12 text-tcs-gray-400">
+                  {search || batchFilter ? 'No records match your filters.' : 'No DPI records found.'}
                 </td>
               </tr>
             ) : (
@@ -146,6 +173,9 @@ function DpiTable({ rows }: { rows: SyncedDpiRecord[] }) {
                   className="border-b last:border-0 border-tcs-gray-100 dark:border-tcs-gray-700/50
                     hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700/30 transition-colors"
                 >
+                  <td className="px-5 py-3.5 text-tcs-gray-700 dark:text-tcs-gray-300">
+                    {d.batch_name}
+                  </td>
                   <td className="px-5 py-3.5 font-mono text-xs text-tcs-gray-600 dark:text-tcs-gray-400">
                     {d.trainee_id}
                   </td>
@@ -166,22 +196,32 @@ function DpiTable({ rows }: { rows: SyncedDpiRecord[] }) {
 }
 
 // ── Subject Scores tab ───────────────────────────────────────────────
-function ScoresTable({ rows }: { rows: SyncedSubjectScore[] }) {
+function ScoresTable({ rows, batchNames }: { rows: SyncedSubjectScore[]; batchNames: string[] }) {
   const [search, setSearch] = useState('');
-  const filtered = rows.filter((r) =>
-    r.trainee_id.toLowerCase().includes(search.toLowerCase()) ||
-    r.trainee_name.toLowerCase().includes(search.toLowerCase()) ||
-    r.subject_name.toLowerCase().includes(search.toLowerCase()) ||
-    (r.exam_name ?? '').toLowerCase().includes(search.toLowerCase())
-  );
+  const [batchFilter, setBatchFilter] = useState('');
+  const filtered = rows.filter((r) => {
+    const matchesBatch = !batchFilter || r.batch_name === batchFilter;
+    const q = search.toLowerCase();
+    const matchesSearch = !q ||
+      r.batch_name.toLowerCase().includes(q) ||
+      r.trainee_id.toLowerCase().includes(q) ||
+      r.trainee_name.toLowerCase().includes(q) ||
+      r.subject_name.toLowerCase().includes(q) ||
+      (r.exam_name ?? '').toLowerCase().includes(q);
+    return matchesBatch && matchesSearch;
+  });
 
   return (
     <>
-      <SearchInput value={search} onChange={setSearch} placeholder="Search by trainee, subject or exam…" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <BatchFilter batches={batchNames} value={batchFilter} onChange={setBatchFilter} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by trainee, subject or exam…" />
+      </div>
       <div className="rounded-xl border overflow-hidden bg-tcs-white dark:bg-tcs-gray-800 border-tcs-gray-200 dark:border-tcs-gray-700">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/50">
+              <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Trainee ID</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Name</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Subject</th>
@@ -192,8 +232,8 @@ function ScoresTable({ rows }: { rows: SyncedSubjectScore[] }) {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-tcs-gray-400">
-                  {search ? 'No scores match your search.' : 'No subject scores found.'}
+                <td colSpan={6} className="text-center py-12 text-tcs-gray-400">
+                  {search || batchFilter ? 'No scores match your filters.' : 'No subject scores found.'}
                 </td>
               </tr>
             ) : (
@@ -203,6 +243,9 @@ function ScoresTable({ rows }: { rows: SyncedSubjectScore[] }) {
                   className="border-b last:border-0 border-tcs-gray-100 dark:border-tcs-gray-700/50
                     hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700/30 transition-colors"
                 >
+                  <td className="px-5 py-3.5 text-tcs-gray-700 dark:text-tcs-gray-300">
+                    {s.batch_name}
+                  </td>
                   <td className="px-5 py-3.5 font-mono text-xs text-tcs-gray-600 dark:text-tcs-gray-400">
                     {s.trainee_id}
                   </td>
@@ -359,8 +402,8 @@ export default function SpringBootDataPage() {
       ) : (
         <>
           {activeTab === 'Batches'       && <BatchesTable rows={batches} />}
-          {activeTab === 'DPI Records'   && <DpiTable rows={dpi} />}
-          {activeTab === 'Subject Scores' && <ScoresTable rows={scores} />}
+          {activeTab === 'DPI Records'   && <DpiTable rows={dpi} batchNames={batches.map((b) => b.batch_name)} />}
+          {activeTab === 'Subject Scores' && <ScoresTable rows={scores} batchNames={batches.map((b) => b.batch_name)} />}
         </>
       )}
     </>

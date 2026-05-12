@@ -19,6 +19,7 @@ public class SubjectScoreService {
     public SubjectScore save(SubjectScoreRequest request) {
         SubjectScore score = new SubjectScore(
                 null,
+                request.getBatchName(),
                 request.getTraineeId(),
                 request.getTraineeName(),
                 request.getSubjectName(),
@@ -39,5 +40,9 @@ public class SubjectScoreService {
 
     public List<SubjectScore> getByTraineeId(String traineeId) {
         return repository.findByTraineeId(traineeId);
+    }
+
+    public List<SubjectScore> getByBatchName(String batchName) {
+        return repository.findByBatchName(batchName);
     }
 }

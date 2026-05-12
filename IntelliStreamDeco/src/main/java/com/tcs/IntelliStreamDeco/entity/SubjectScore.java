@@ -18,6 +18,9 @@ public class SubjectScore {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "batch_name", nullable = false)
+    private String batchName;
+
     @Column(name = "trainee_id", nullable = false)
     private String traineeId;
 

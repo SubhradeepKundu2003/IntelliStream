@@ -15,5 +15,8 @@ class Settings(BaseSettings):
 
     SPRINGBOOT_BASE_URL: str = "http://localhost:8081"
 
+    DPI_WEIGHT: float = 0.40
+    SCORE_WEIGHT: float = 0.60
+
 
 settings = Settings()

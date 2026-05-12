@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class DpiRequest {
     private String traineeId;
+    private String batchName;
     private String traineeName;
     private Double dpi;
 }

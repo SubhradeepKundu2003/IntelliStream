@@ -19,6 +19,9 @@ public class DpiRecord {
     @Column(name = "trainee_id")
     private String traineeId;
 
+    @Column(name = "batch_name", nullable = false)
+    private String batchName;
+
     @Column(name = "trainee_name", nullable = false)
     private String traineeName;
 

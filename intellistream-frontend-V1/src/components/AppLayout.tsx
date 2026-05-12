@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Database, GitBranch, LayoutDashboard, LogOut, Users } from 'lucide-react';
+import { BookOpen, Database, GitBranch, GraduationCap, Layers, LayoutDashboard, LogOut, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ThemeToggle from './ui/ThemeToggle';
 import Badge from './ui/Badge';
@@ -16,7 +16,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',        to: '/home',                  icon: <LayoutDashboard size={18} />, roles: ['admin', 'manager', 'sme'] },
   { label: 'Stream Management', to: '/streams',             icon: <GitBranch size={18} />,       roles: ['admin', 'manager', 'sme'] },
   { label: 'User Management',  to: '/admin/users',          icon: <Users size={18} />,           roles: ['admin'] },
-  { label: 'Training Data',    to: '/admin/training-data',  icon: <Database size={18} />,        roles: ['admin'] },
+  { label: 'Stream Templates', to: '/admin/stream-templates',      icon: <Layers size={18} />,        roles: ['admin', 'manager', 'sme'] },
+  { label: 'Batches & Trainees', to: '/admin/trainees',           icon: <GraduationCap size={18} />, roles: ['admin', 'manager'] },
+  { label: 'Training Data',    to: '/admin/training-data',         icon: <Database size={18} />,      roles: ['admin', 'manager'] },
+  { label: 'Business Reqs',   to: '/admin/business-requirements', icon: <BookOpen size={18} />,      roles: ['admin', 'manager'] },
 ];
 
 export default function AppLayout() {

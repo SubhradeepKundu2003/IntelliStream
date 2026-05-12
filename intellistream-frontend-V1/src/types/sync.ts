@@ -2,12 +2,14 @@ export interface SyncedBatch {
   id: number;
   batch_name: string;
   subjects: string[];
+  trainee_count: number;
   synced_at: string;
 }
 
 export interface SyncedDpiRecord {
   id: number;
   trainee_id: string;
+  batch_name: string;
   trainee_name: string;
   dpi: number;
   synced_at: string;
@@ -16,6 +18,7 @@ export interface SyncedDpiRecord {
 export interface SyncedSubjectScore {
   id: number;
   external_id: string;
+  batch_name: string;
   trainee_id: string;
   trainee_name: string;
   subject_name: string;
