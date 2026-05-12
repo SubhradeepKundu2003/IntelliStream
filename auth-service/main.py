@@ -14,7 +14,8 @@ from sync.routes import router as sync_router
 from sync.service import run_sync
 from streams.routes import router as streams_router
 from stream_templates.routes import router as stream_templates_router
-from trainees.routes import router as batches_router, trainee_router
+from trainees.routes import trainee_router
+from batch_management.routes import router as batch_mgmt_router
 from business_requirements.routes import router as br_router
 
 
@@ -74,8 +75,8 @@ app.include_router(auth_router)
 app.include_router(sync_router)
 app.include_router(streams_router)
 app.include_router(stream_templates_router)
-app.include_router(batches_router)
 app.include_router(trainee_router)
+app.include_router(batch_mgmt_router)
 app.include_router(br_router)
 
 

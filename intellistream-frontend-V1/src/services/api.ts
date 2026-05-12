@@ -2,7 +2,7 @@ import axios from 'axios';
 import type { UserResponse } from '../types/auth';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
 import type { BatchStream, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightsSet } from '../types/streams';
-import type { Batch, BatchStatus, ImportResult, Trainee } from '../types/trainees';
+import type { SpringBootBatch } from '../types/batch_management';
 import type {
   BRCreate,
   BRResponse,
@@ -142,20 +142,17 @@ export const streamTemplatesApi = {
                  api.post<SubjectWeight[]>(`/streams/${id}/subjects`, body),
 };
 
-export const batchesApi = {
-  list:     () => api.get<Batch[]>('/batches'),
-  create:   (body: { name: string; year: number; quarter: number }) =>
-              api.post<Batch>('/batches', body),
-  update:   (id: number, body: { name?: string; status?: BatchStatus }) =>
-              api.patch<Batch>(`/batches/${id}`, body),
-  trainees: (id: number) => api.get<Trainee[]>(`/batches/${id}/trainees`),
-  import:   (id: number, file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    return api.post<ImportResult>(`/batches/${id}/trainees/import`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
+export const batchManagementApi = {
+  list:   () =>
+            api.get<SpringBootBatch[]>('/batch-management'),
+  get:    (batchName: string) =>
+            api.get<SpringBootBatch>(`/batch-management/${encodeURIComponent(batchName)}`),
+  create: (body: SpringBootBatch) =>
+            api.post<SpringBootBatch>('/batch-management', body),
+  update: (batchName: string, body: SpringBootBatch) =>
+            api.put<SpringBootBatch>(`/batch-management/${encodeURIComponent(batchName)}`, body),
+  remove: (batchName: string) =>
+            api.delete(`/batch-management/${encodeURIComponent(batchName)}`),
 };
 
 export const syncApi = {

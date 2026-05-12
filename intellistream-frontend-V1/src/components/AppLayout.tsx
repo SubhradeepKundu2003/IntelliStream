@@ -17,7 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Stream Management', to: '/streams',             icon: <GitBranch size={18} />,       roles: ['admin', 'manager', 'sme'] },
   { label: 'User Management',  to: '/admin/users',          icon: <Users size={18} />,           roles: ['admin'] },
   { label: 'Stream Templates', to: '/admin/stream-templates',      icon: <Layers size={18} />,        roles: ['admin', 'manager', 'sme'] },
-  { label: 'Batches & Trainees', to: '/admin/trainees',           icon: <GraduationCap size={18} />, roles: ['admin', 'manager'] },
+  { label: 'Batch Management',   to: '/admin/trainees',           icon: <GraduationCap size={18} />, roles: ['admin', 'manager'] },
   { label: 'Training Data',    to: '/admin/training-data',         icon: <Database size={18} />,      roles: ['admin', 'manager'] },
   { label: 'Business Reqs',   to: '/admin/business-requirements', icon: <BookOpen size={18} />,      roles: ['admin', 'manager'] },
 ];
