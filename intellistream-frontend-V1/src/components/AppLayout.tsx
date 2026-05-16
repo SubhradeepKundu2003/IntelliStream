@@ -3,6 +3,7 @@ import { BookOpen, Database, GitBranch, GraduationCap, Layers, LayoutDashboard, 
 import { useAuth } from '../contexts/AuthContext';
 import ThemeToggle from './ui/ThemeToggle';
 import Badge from './ui/Badge';
+import NotificationBell from './NotificationBell';
 import type { Role } from '../types/auth';
 
 interface NavItem {
@@ -100,9 +101,10 @@ export default function AppLayout() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 shrink-0 flex items-center justify-end px-6
+        <header className="h-14 shrink-0 flex items-center justify-end gap-2 px-6
           bg-tcs-white dark:bg-tcs-gray-800
           border-b border-tcs-gray-200 dark:border-tcs-gray-700">
+          <NotificationBell />
           <ThemeToggle />
         </header>
 

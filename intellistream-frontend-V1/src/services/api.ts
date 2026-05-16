@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { UserResponse } from '../types/auth';
+import type { Notification } from '../types/notifications';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
 import type { BatchStream, SMEAssignment, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
@@ -170,6 +171,19 @@ export const batchManagementApi = {
             api.put<SpringBootBatch>(`/batch-management/${encodeURIComponent(batchName)}`, body),
   remove: (batchName: string) =>
             api.delete(`/batch-management/${encodeURIComponent(batchName)}`),
+};
+
+export const notificationsApi = {
+  list:         (unreadOnly = false) =>
+                  api.get<Notification[]>('/notifications', { params: unreadOnly ? { unread_only: true } : undefined }),
+  unreadCount:  () =>
+                  api.get<{ count: number }>('/notifications/unread-count'),
+  markRead:     (id: number) =>
+                  api.patch<Notification>(`/notifications/${id}/read`),
+  markAllRead:  () =>
+                  api.patch('/notifications/read-all'),
+  remove:       (id: number) =>
+                  api.delete(`/notifications/${id}`),
 };
 
 export const syncApi = {

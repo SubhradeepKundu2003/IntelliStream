@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from auth.dependencies import get_current_user, require_manager_or_above, require_sme_or_above
 from database import get_db
 from models import Role, User
+from notifications.models import NotificationType
+from notifications.service import create_notification
 from sync.models import SyncedBatch
 from .models import BatchStream, BatchStreamSME, ProposalStatus, StreamSubjectWeight, StreamWeightProposal
 from .schemas import (
@@ -155,6 +157,15 @@ def delete_stream(batch_name: str, stream_id: int, db: Session = Depends(get_db)
     stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
     if not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    assignments = db.query(BatchStreamSME).filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.is_active == True).all()
+    for a in assignments:
+        sme_user = db.query(User).filter(User.id == a.user_id).first()
+        if sme_user:
+            create_notification(
+                db, sme_user.email, NotificationType.stream_deleted,
+                "Stream Deleted",
+                f"Stream '{stream.name}' in batch '{batch_name}' has been deleted.",
+            )
     stream.is_active = False
     db.commit()
 
@@ -201,6 +212,13 @@ def set_weights(
             proposed_weights_json=weights_json,
         )
         db.add(proposal)
+        managers = db.query(User).filter(User.role.in_([Role.manager, Role.admin]), User.is_active == True).all()
+        for mgr in managers:
+            create_notification(
+                db, mgr.email, NotificationType.proposal_submitted,
+                "Weight Proposal Pending Review",
+                f"{user.email} submitted a weight proposal for stream '{stream.name}' in batch '{batch_name}'.",
+            )
         db.commit()
     else:
         db.query(StreamSubjectWeight).filter(StreamSubjectWeight.stream_id == stream_id).delete()
@@ -257,6 +275,11 @@ def approve_proposal(
     proposal.status = ProposalStatus.approved
     proposal.reviewed_by_email = user.email
     proposal.reviewed_at = datetime.now(timezone.utc)
+    create_notification(
+        db, proposal.proposed_by_email, NotificationType.proposal_approved,
+        "Weight Proposal Approved",
+        f"Your weight proposal for stream '{stream.name}' in batch '{batch_name}' was approved by {user.email}.",
+    )
     db.commit()
     db.refresh(proposal)
     return _proposal_response(proposal)
@@ -286,6 +309,12 @@ def reject_proposal(
     proposal.reviewed_by_email = user.email
     proposal.reviewed_at = datetime.now(timezone.utc)
     proposal.rejection_reason = body.rejection_reason
+    reason_part = f" Reason: {body.rejection_reason}" if body.rejection_reason else ""
+    create_notification(
+        db, proposal.proposed_by_email, NotificationType.proposal_rejected,
+        "Weight Proposal Rejected",
+        f"Your weight proposal for stream '{stream.name}' in batch '{batch_name}' was rejected by {user.email}.{reason_part}",
+    )
     db.commit()
     db.refresh(proposal)
     return _proposal_response(proposal)
@@ -334,12 +363,22 @@ def assign_sme(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"User '{sme_user.email}' is already assigned as SME for this stream")
         existing.is_active = True
         existing.assigned_by_email = user.email
+        create_notification(
+            db, sme_user.email, NotificationType.sme_assigned,
+            "You've Been Assigned as SME",
+            f"You have been assigned as SME for stream '{stream.name}' in batch '{batch_name}' by {user.email}.",
+        )
         db.commit()
         db.refresh(existing)
         return _sme_assignment_response(existing, stream, sme_user.email)
 
     assignment = BatchStreamSME(stream_id=stream_id, user_id=body.user_id, assigned_by_email=user.email)
     db.add(assignment)
+    create_notification(
+        db, sme_user.email, NotificationType.sme_assigned,
+        "You've Been Assigned as SME",
+        f"You have been assigned as SME for stream '{stream.name}' in batch '{batch_name}' by {user.email}.",
+    )
     db.commit()
     db.refresh(assignment)
     return _sme_assignment_response(assignment, stream, sme_user.email)
@@ -359,6 +398,13 @@ def remove_sme(
     assignment = db.query(BatchStreamSME).filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.user_id == user_id, BatchStreamSME.is_active == True).first()
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SME assignment not found")
+    sme_user = db.query(User).filter(User.id == user_id).first()
+    if sme_user:
+        create_notification(
+            db, sme_user.email, NotificationType.sme_removed,
+            "SME Assignment Removed",
+            f"You have been removed as SME from stream '{stream.name}' in batch '{batch_name}'.",
+        )
     assignment.is_active = False
     db.commit()
 

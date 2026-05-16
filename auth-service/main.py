@@ -10,6 +10,7 @@ from auth.utils import hash_password
 from config import settings
 from database import Base, SessionLocal, engine
 from models import Role, User
+from notifications.routes import router as notifications_router
 from sync.routes import router as sync_router
 from sync.service import run_sync
 from streams.routes import router as streams_router
@@ -72,6 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(notifications_router)
 app.include_router(sync_router)
 app.include_router(streams_router)
 app.include_router(stream_templates_router)
