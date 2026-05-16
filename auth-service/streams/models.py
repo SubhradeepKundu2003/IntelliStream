@@ -41,3 +41,15 @@ class StreamWeightProposal(Base):
     reviewed_by_email = Column(String, nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     rejection_reason = Column(String, nullable=True)
+
+
+class BatchStreamSME(Base):
+    __tablename__ = "batch_stream_smes"
+    __table_args__ = (UniqueConstraint("stream_id", "user_id", name="uq_stream_sme"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    stream_id = Column(Integer, ForeignKey("batch_streams.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    assigned_by_email = Column(String, nullable=False)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_active = Column(Boolean, default=True)

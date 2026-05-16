@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, XCircle } from 'lucide-react';
-import { streamsApi, syncApi } from '../services/api';
+import { CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
+import { authApi, streamsApi, syncApi } from '../services/api';
 import type { SyncedBatch } from '../types/sync';
-import type { BatchStream, StreamSubjectWeight, WeightProposal } from '../types/streams';
+import type { BatchStream, SMEAssignment, StreamSubjectWeight, WeightProposal } from '../types/streams';
+import type { UserResponse } from '../types/auth';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -383,24 +384,191 @@ function ReviewProposalModal({
   );
 }
 
+// ── Manage SMEs modal (manager / admin) ─────────────────────────────
+function ManageSMEsModal({
+  isOpen,
+  onClose,
+  stream,
+  batchName,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  stream: BatchStream | null;
+  batchName: string;
+}) {
+  const [smes, setSmes] = useState<SMEAssignment[]>([]);
+  const [allUsers, setAllUsers] = useState<UserResponse[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
+  const [loading, setLoading] = useState(false);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [removeLoadingId, setRemoveLoadingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !stream) return;
+    setLoading(true);
+    setError('');
+    setSelectedUserId('');
+    Promise.all([
+      streamsApi.listStreamSmes(batchName, stream.id),
+      authApi.users(),
+    ])
+      .then(([{ data: smeData }, { data: usersData }]) => {
+        setSmes(smeData);
+        setAllUsers(usersData.filter((u) => u.role === 'sme' && u.is_active));
+      })
+      .catch(() => setError('Failed to load SME data.'))
+      .finally(() => setLoading(false));
+  }, [isOpen, stream, batchName]);
+
+  const assignedUserIds = new Set(smes.map((s) => s.user_id));
+  const availableUsers = allUsers.filter((u) => !assignedUserIds.has(u.id));
+
+  const handleAssign = async () => {
+    if (!stream || selectedUserId === '') return;
+    setAssignLoading(true);
+    setError('');
+    try {
+      const { data } = await streamsApi.assignSme(batchName, stream.id, Number(selectedUserId));
+      setSmes((prev) => [...prev, data]);
+      setSelectedUserId('');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to assign SME.');
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  const handleRemove = async (userId: number) => {
+    if (!stream) return;
+    setRemoveLoadingId(userId);
+    setError('');
+    try {
+      await streamsApi.removeSme(batchName, stream.id, userId);
+      setSmes((prev) => prev.filter((s) => s.user_id !== userId));
+    } catch {
+      setError('Failed to remove SME.');
+    } finally {
+      setRemoveLoadingId(null);
+    }
+  };
+
+  if (!stream) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Manage SMEs — ${stream.name}`} width="w-full max-w-lg">
+      <div className="space-y-5">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <span className="w-6 h-6 border-2 border-tcs-blue border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-tcs-gray-400 dark:text-tcs-gray-500 mb-2">
+                Assigned SMEs
+              </p>
+              {smes.length === 0 ? (
+                <p className="text-sm text-tcs-gray-400 dark:text-tcs-gray-500 py-4 text-center rounded-lg border border-dashed border-tcs-gray-200 dark:border-tcs-gray-700">
+                  No SMEs assigned to this stream yet.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {smes.map((sme) => (
+                    <div
+                      key={sme.user_id}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-lg
+                        bg-tcs-gray-50 dark:bg-tcs-gray-800
+                        border border-tcs-gray-100 dark:border-tcs-gray-700"
+                    >
+                      <div className="flex items-center gap-2">
+                        <UserCircle size={15} className="text-tcs-blue shrink-0" />
+                        <span className="text-sm text-tcs-gray-800 dark:text-tcs-gray-200">{sme.user_email}</span>
+                      </div>
+                      <button
+                        onClick={() => handleRemove(sme.user_id)}
+                        disabled={removeLoadingId === sme.user_id}
+                        className="p-1.5 rounded-md text-tcs-gray-400 hover:text-red-600 hover:bg-red-50
+                          dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {removeLoadingId === sme.user_id
+                          ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin inline-block" />
+                          : <Trash2 size={13} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-tcs-gray-400 dark:text-tcs-gray-500 mb-2">
+                Assign New SME
+              </p>
+              {availableUsers.length === 0 ? (
+                <p className="text-sm text-tcs-gray-400 dark:text-tcs-gray-500">
+                  All SME-role users are already assigned to this stream.
+                </p>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="flex-1 px-3 py-2 text-sm rounded-lg border outline-none transition-colors
+                      bg-tcs-white text-tcs-gray-900 dark:bg-tcs-gray-900 dark:text-tcs-gray-100
+                      border-tcs-gray-300 dark:border-tcs-gray-700
+                      focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
+                  >
+                    <option value="">Select an SME...</option>
+                    {availableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.email}</option>
+                    ))}
+                  </select>
+                  <Button loading={assignLoading} disabled={selectedUserId === ''} onClick={handleAssign}>
+                    Assign
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <Button variant="secondary" onClick={onClose}>Done</Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Stream card ──────────────────────────────────────────────────────
 function StreamCard({
   stream,
   canManage,
+  isAssignedSme,
   onRename,
   onDelete,
   onSetWeights,
   onReviewProposal,
+  onManageSmes,
 }: {
   stream: BatchStream;
   canManage: boolean;
+  isAssignedSme: boolean;
   onRename: (s: BatchStream) => void;
   onDelete: (s: BatchStream) => void;
   onSetWeights: (s: BatchStream) => void;
   onReviewProposal: (s: BatchStream) => void;
+  onManageSmes: (s: BatchStream) => void;
 }) {
   const hasWeights = stream.weights.length > 0;
   const isPending = stream.has_pending_proposal;
+  const canEditWeights = canManage || isAssignedSme;
 
   return (
     <div className="rounded-xl border p-4
@@ -435,13 +603,13 @@ function StreamCard({
               <Clock size={13} />
               Review
             </button>
-          ) : isPending ? (
+          ) : isPending && isAssignedSme ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
               text-tcs-gray-400 dark:text-tcs-gray-500 cursor-not-allowed select-none">
               <Sliders size={13} />
               Locked
             </span>
-          ) : (
+          ) : canEditWeights ? (
             <button
               onClick={() => onSetWeights(stream)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
@@ -450,9 +618,17 @@ function StreamCard({
               <Sliders size={13} />
               Weights
             </button>
-          )}
+          ) : null}
           {canManage && (
             <>
+              <button
+                onClick={() => onManageSmes(stream)}
+                className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-tcs-blue hover:bg-tcs-blue/10
+                  dark:hover:bg-tcs-blue/20 transition-colors cursor-pointer"
+                title="Manage SMEs"
+              >
+                <Users size={13} />
+              </button>
               <button
                 onClick={() => onRename(stream)}
                 className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-tcs-gray-700 hover:bg-tcs-gray-100
@@ -512,7 +688,9 @@ export default function StreamManagementPage() {
   const [renameTarget, setRenameTarget] = useState<BatchStream | null>(null);
   const [weightsTarget, setWeightsTarget] = useState<BatchStream | null>(null);
   const [reviewTarget, setReviewTarget] = useState<BatchStream | null>(null);
+  const [manageSmeTarget, setManageSmeTarget] = useState<BatchStream | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [mySmeStreamIds, setMySmeStreamIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     syncApi.batches()
@@ -537,6 +715,13 @@ export default function StreamManagementPage() {
   useEffect(() => {
     if (selectedBatch) fetchStreams(selectedBatch.batch_name);
   }, [selectedBatch, fetchStreams]);
+
+  useEffect(() => {
+    if (!selectedBatch) return;
+    streamsApi.myBatchSmeAssignments(selectedBatch.batch_name)
+      .then(({ data }) => setMySmeStreamIds(new Set(data)))
+      .catch(() => setMySmeStreamIds(new Set()));
+  }, [selectedBatch]);
 
   const handleAddStream = async (name: string) => {
     if (!selectedBatch) return;
@@ -599,6 +784,12 @@ export default function StreamManagementPage() {
         onClose={() => setReviewTarget(null)}
         stream={reviewTarget}
         onReviewed={handleProposalReviewed}
+      />
+      <ManageSMEsModal
+        isOpen={!!manageSmeTarget}
+        onClose={() => setManageSmeTarget(null)}
+        stream={manageSmeTarget}
+        batchName={selectedBatch?.batch_name ?? ''}
       />
 
       {/* Page header */}
@@ -710,6 +901,7 @@ export default function StreamManagementPage() {
                     key={stream.id}
                     stream={stream}
                     canManage={canManage}
+                    isAssignedSme={mySmeStreamIds.has(stream.id)}
                     onRename={setRenameTarget}
                     onDelete={(s) => {
                       if (deletingId !== null) return;
@@ -717,6 +909,7 @@ export default function StreamManagementPage() {
                     }}
                     onSetWeights={setWeightsTarget}
                     onReviewProposal={setReviewTarget}
+                    onManageSmes={setManageSmeTarget}
                   />
                 ))}
               </div>

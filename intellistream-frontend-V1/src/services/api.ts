@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { UserResponse } from '../types/auth';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
-import type { BatchStream, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
+import type { BatchStream, SMEAssignment, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
 import type {
   BRCreate,
@@ -111,6 +111,17 @@ export const streamsApi = {
                      api.post<WeightProposal>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/proposals/${proposalId}/approve`),
   rejectProposal:  (batchName: string, streamId: number, proposalId: number, body: { rejection_reason?: string }) =>
                      api.post<WeightProposal>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/proposals/${proposalId}/reject`, body),
+
+  listStreamSmes:       (batchName: string, streamId: number) =>
+                          api.get<SMEAssignment[]>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/smes`),
+  listBatchSmes:        (batchName: string) =>
+                          api.get<SMEAssignment[]>(`/batches/${encodeURIComponent(batchName)}/smes`),
+  myBatchSmeAssignments:(batchName: string) =>
+                          api.get<number[]>(`/batches/${encodeURIComponent(batchName)}/my-sme-assignments`),
+  assignSme:            (batchName: string, streamId: number, userId: number) =>
+                          api.post<SMEAssignment>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/smes`, { user_id: userId }),
+  removeSme:            (batchName: string, streamId: number, userId: number) =>
+                          api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/smes/${userId}`),
 };
 
 export const brApi = {

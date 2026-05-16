@@ -35,6 +35,19 @@ export interface WeightProposal {
   rejection_reason: string | null;
 }
 
+// ── SME assignments (batch + stream level) ──
+export interface SMEAssignment {
+  id: number;
+  stream_id: number;
+  stream_name: string;
+  batch_name: string;
+  user_id: number;
+  user_email: string;
+  assigned_by_email: string;
+  assigned_at: string;
+  is_active: boolean;
+}
+
 // ── Global stream templates (agent 03 / StreamTemplatesPage) ──
 export type SubjectName = 'java' | 'python' | 'sql' | 'cybersecurity' | 'agile' | 'aiml' | 'webtech' | 'cloud';
 

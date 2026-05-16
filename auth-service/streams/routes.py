@@ -8,10 +8,12 @@ from auth.dependencies import get_current_user, require_manager_or_above, requir
 from database import get_db
 from models import Role, User
 from sync.models import SyncedBatch
-from .models import BatchStream, ProposalStatus, StreamSubjectWeight, StreamWeightProposal
+from .models import BatchStream, BatchStreamSME, ProposalStatus, StreamSubjectWeight, StreamWeightProposal
 from .schemas import (
     BatchStreamResponse,
     ProposalReview,
+    SMEAssignRequest,
+    SMEAssignmentResponse,
     StreamCreate,
     StreamRename,
     SubjectWeightResponse,
@@ -54,6 +56,20 @@ def _stream_response(stream: BatchStream, db: Session) -> BatchStreamResponse:
         is_active=stream.is_active,
         weights=[SubjectWeightResponse(subject_name=w.subject_name, weight_pct=w.weight_pct) for w in weights],
         has_pending_proposal=has_pending,
+    )
+
+
+def _sme_assignment_response(assignment: BatchStreamSME, stream: BatchStream, user_email: str) -> SMEAssignmentResponse:
+    return SMEAssignmentResponse(
+        id=assignment.id,
+        stream_id=assignment.stream_id,
+        stream_name=stream.name,
+        batch_name=stream.batch_name,
+        user_id=assignment.user_id,
+        user_email=user_email,
+        assigned_by_email=assignment.assigned_by_email,
+        assigned_at=assignment.assigned_at,
+        is_active=assignment.is_active,
     )
 
 
@@ -162,6 +178,18 @@ def set_weights(
             detail="A weight change proposal is already pending approval for this stream. No changes allowed until it is reviewed.",
         )
 
+    if user.role == Role.sme:
+        assigned = (
+            db.query(BatchStreamSME)
+            .filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.user_id == user.id, BatchStreamSME.is_active == True)
+            .first()
+        )
+        if not assigned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not assigned as SME for this stream.",
+            )
+
     _validate_weights_against_batch(batch_name, body, batch_subjects)
 
     if user.role == Role.sme:
@@ -261,3 +289,115 @@ def reject_proposal(
     db.commit()
     db.refresh(proposal)
     return _proposal_response(proposal)
+
+
+@router.get("/{batch_name}/streams/{stream_id}/smes", response_model=list[SMEAssignmentResponse])
+def list_stream_smes(
+    batch_name: str,
+    stream_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_manager_or_above),
+):
+    stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
+    if not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    assignments = db.query(BatchStreamSME).filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.is_active == True).all()
+    result = []
+    for a in assignments:
+        sme_user = db.query(User).filter(User.id == a.user_id).first()
+        if sme_user:
+            result.append(_sme_assignment_response(a, stream, sme_user.email))
+    return result
+
+
+@router.post("/{batch_name}/streams/{stream_id}/smes", response_model=SMEAssignmentResponse, status_code=status.HTTP_201_CREATED)
+def assign_sme(
+    batch_name: str,
+    stream_id: int,
+    body: SMEAssignRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_manager_or_above),
+):
+    stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
+    if not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+
+    sme_user = db.query(User).filter(User.id == body.user_id, User.is_active == True).first()
+    if not sme_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if sme_user.role != Role.sme:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"User '{sme_user.email}' does not have the SME role")
+
+    existing = db.query(BatchStreamSME).filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.user_id == body.user_id).first()
+    if existing:
+        if existing.is_active:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"User '{sme_user.email}' is already assigned as SME for this stream")
+        existing.is_active = True
+        existing.assigned_by_email = user.email
+        db.commit()
+        db.refresh(existing)
+        return _sme_assignment_response(existing, stream, sme_user.email)
+
+    assignment = BatchStreamSME(stream_id=stream_id, user_id=body.user_id, assigned_by_email=user.email)
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return _sme_assignment_response(assignment, stream, sme_user.email)
+
+
+@router.delete("/{batch_name}/streams/{stream_id}/smes/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_sme(
+    batch_name: str,
+    stream_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_manager_or_above),
+):
+    stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
+    if not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    assignment = db.query(BatchStreamSME).filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.user_id == user_id, BatchStreamSME.is_active == True).first()
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SME assignment not found")
+    assignment.is_active = False
+    db.commit()
+
+
+@router.get("/{batch_name}/my-sme-assignments", response_model=list[int])
+def my_sme_assignments(
+    batch_name: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    streams = db.query(BatchStream).filter(BatchStream.batch_name == batch_name, BatchStream.is_active == True).all()
+    stream_ids = [s.id for s in streams]
+    if not stream_ids:
+        return []
+    assignments = db.query(BatchStreamSME).filter(
+        BatchStreamSME.stream_id.in_(stream_ids),
+        BatchStreamSME.user_id == user.id,
+        BatchStreamSME.is_active == True,
+    ).all()
+    return [a.stream_id for a in assignments]
+
+
+@router.get("/{batch_name}/smes", response_model=list[SMEAssignmentResponse])
+def list_batch_smes(
+    batch_name: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_manager_or_above),
+):
+    _get_batch_subjects(batch_name, db)
+    streams = db.query(BatchStream).filter(BatchStream.batch_name == batch_name, BatchStream.is_active == True).all()
+    stream_map = {s.id: s for s in streams}
+    if not stream_map:
+        return []
+    assignments = db.query(BatchStreamSME).filter(
+        BatchStreamSME.stream_id.in_(list(stream_map.keys())), BatchStreamSME.is_active == True
+    ).all()
+    result = []
+    for a in assignments:
+        sme_user = db.query(User).filter(User.id == a.user_id).first()
+        if sme_user:
+            result.append(_sme_assignment_response(a, stream_map[a.stream_id], sme_user.email))
+    return result

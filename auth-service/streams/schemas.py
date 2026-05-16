@@ -79,3 +79,20 @@ class WeightsSet(BaseModel):
         if abs(total - 100.0) > 0.01:
             raise ValueError(f"Subject weights must sum to 100.0, got {total:.2f}")
         return self
+
+
+class SMEAssignRequest(BaseModel):
+    user_id: int
+
+
+class SMEAssignmentResponse(BaseModel):
+    id: int
+    stream_id: int
+    stream_name: str
+    batch_name: str
+    user_id: int
+    user_email: str
+    assigned_by_email: str
+    assigned_at: datetime
+    is_active: bool
+    model_config = {"from_attributes": True}
