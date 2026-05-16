@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from auth.routes import router as auth_router
@@ -18,6 +19,16 @@ from stream_templates.routes import router as stream_templates_router
 from trainees.routes import trainee_router
 from batch_management.routes import router as batch_mgmt_router
 from business_requirements.routes import router as br_router
+
+
+def _run_migrations() -> None:
+    inspector = inspect(engine)
+    if "batch_streams" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("batch_streams")}
+        if "priority" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE batch_streams ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"))
+            print("[migration] Added 'priority' column to batch_streams")
 
 
 def _seed_admin(db: Session) -> None:
@@ -37,6 +48,7 @@ def _seed_admin(db: Session) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     db = SessionLocal()
     try:
         _seed_admin(db)

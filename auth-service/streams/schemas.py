@@ -38,6 +38,7 @@ class BatchStreamResponse(BaseModel):
     batch_name: str
     name: str
     is_active: bool
+    priority: int = 0
     weights: List[SubjectWeightResponse] = []
     has_pending_proposal: bool = False
     model_config = {"from_attributes": True}
@@ -79,6 +80,17 @@ class WeightsSet(BaseModel):
         if abs(total - 100.0) > 0.01:
             raise ValueError(f"Subject weights must sum to 100.0, got {total:.2f}")
         return self
+
+
+class StreamPrioritySet(BaseModel):
+    priority: int
+
+    @field_validator("priority")
+    @classmethod
+    def priority_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("Priority must be 0 (unranked) or a positive integer")
+        return v
 
 
 class SMEAssignRequest(BaseModel):

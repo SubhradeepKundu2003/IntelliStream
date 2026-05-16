@@ -9,6 +9,7 @@ export interface BatchStream {
   batch_name: string;
   name: string;
   is_active: boolean;
+  priority: number;
   weights: StreamSubjectWeight[];
   has_pending_proposal: boolean;
 }

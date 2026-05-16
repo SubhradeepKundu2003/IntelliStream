@@ -17,6 +17,7 @@ from .schemas import (
     SMEAssignRequest,
     SMEAssignmentResponse,
     StreamCreate,
+    StreamPrioritySet,
     StreamRename,
     SubjectWeightResponse,
     WeightProposalResponse,
@@ -56,6 +57,7 @@ def _stream_response(stream: BatchStream, db: Session) -> BatchStreamResponse:
         batch_name=stream.batch_name,
         name=stream.name,
         is_active=stream.is_active,
+        priority=stream.priority,
         weights=[SubjectWeightResponse(subject_name=w.subject_name, weight_pct=w.weight_pct) for w in weights],
         has_pending_proposal=has_pending,
     )
@@ -112,6 +114,11 @@ def list_streams(batch_name: str, db: Session = Depends(get_db), _=Depends(get_c
     streams = (
         db.query(BatchStream)
         .filter(BatchStream.batch_name == batch_name, BatchStream.is_active == True)
+        .order_by(
+            # Unranked (priority=0) streams go last; ranked streams ordered 1, 2, 3...
+            (BatchStream.priority == 0).desc(),
+            BatchStream.priority.asc(),
+        )
         .all()
     )
     return [_stream_response(s, db) for s in streams]
@@ -168,6 +175,39 @@ def delete_stream(batch_name: str, stream_id: int, db: Session = Depends(get_db)
             )
     stream.is_active = False
     db.commit()
+
+
+@router.patch("/{batch_name}/streams/{stream_id}/priority", response_model=BatchStreamResponse)
+def set_stream_priority(
+    batch_name: str,
+    stream_id: int,
+    body: StreamPrioritySet,
+    db: Session = Depends(get_db),
+    _=Depends(require_manager_or_above),
+):
+    stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
+    if not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    if body.priority != 0:
+        conflict = (
+            db.query(BatchStream)
+            .filter(
+                BatchStream.batch_name == batch_name,
+                BatchStream.priority == body.priority,
+                BatchStream.id != stream_id,
+                BatchStream.is_active == True,
+            )
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Priority {body.priority} is already assigned to stream '{conflict.name}' in this batch",
+            )
+    stream.priority = body.priority
+    db.commit()
+    db.refresh(stream)
+    return _stream_response(stream, db)
 
 
 @router.post("/{batch_name}/streams/{stream_id}/weights", response_model=BatchStreamResponse)

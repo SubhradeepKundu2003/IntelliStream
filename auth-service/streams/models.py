@@ -18,6 +18,8 @@ class BatchStream(Base):
     batch_name = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    # Lower value = higher allocation priority; 0 = unranked (allocated last)
+    priority = Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class StreamSubjectWeight(Base):

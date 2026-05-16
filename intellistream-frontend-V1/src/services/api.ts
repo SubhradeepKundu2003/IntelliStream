@@ -104,6 +104,8 @@ export const streamsApi = {
                      api.put<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`, body),
   remove:          (batchName: string, streamId: number) =>
                      api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`),
+  setPriority:     (batchName: string, streamId: number, priority: number) =>
+                     api.patch<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/priority`, { priority }),
   setWeights:      (batchName: string, streamId: number, body: WeightsSet) =>
                      api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/weights`, body),
   listProposals:   (batchName: string, streamId: number) =>

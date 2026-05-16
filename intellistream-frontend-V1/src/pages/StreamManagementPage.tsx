@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
+import { ArrowUpDown, CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
 import { authApi, streamsApi, syncApi } from '../services/api';
 import type { SyncedBatch } from '../types/sync';
 import type { BatchStream, SMEAssignment, StreamSubjectWeight, WeightProposal } from '../types/streams';
@@ -546,6 +546,76 @@ function ManageSMEsModal({
   );
 }
 
+// ── Set priority modal ───────────────────────────────────────────────
+function SetPriorityModal({
+  isOpen,
+  onClose,
+  stream,
+  onSaved,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  stream: BatchStream | null;
+  onSaved: (updated: BatchStream) => void;
+}) {
+  const [value, setValue] = useState('0');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && stream) setValue(String(stream.priority));
+  }, [isOpen, stream]);
+
+  const handleSave = async () => {
+    if (!stream) return;
+    const priority = parseInt(value, 10);
+    if (isNaN(priority) || priority < 0) {
+      setError('Priority must be 0 (unranked) or a positive integer');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const { data } = await streamsApi.setPriority(stream.batch_name, stream.id, priority);
+      onSaved(data);
+      onClose();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to set priority.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!stream) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Set Priority — ${stream.name}`}>
+      <div className="space-y-4">
+        <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+          Set a priority rank for this stream. When a trainee qualifies for multiple streams,
+          the stream with the lowest priority number is allocated first.
+          Use <strong>0</strong> to leave this stream unranked (allocated last).
+        </p>
+        <Input
+          label="Priority (0 = unranked, 1 = highest)"
+          type="number"
+          min={0}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          error={error}
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+        />
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button loading={loading} onClick={handleSave}>Save Priority</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Stream card ──────────────────────────────────────────────────────
 function StreamCard({
   stream,
@@ -556,6 +626,7 @@ function StreamCard({
   onSetWeights,
   onReviewProposal,
   onManageSmes,
+  onSetPriority,
 }: {
   stream: BatchStream;
   canManage: boolean;
@@ -565,6 +636,7 @@ function StreamCard({
   onSetWeights: (s: BatchStream) => void;
   onReviewProposal: (s: BatchStream) => void;
   onManageSmes: (s: BatchStream) => void;
+  onSetPriority: (s: BatchStream) => void;
 }) {
   const hasWeights = stream.weights.length > 0;
   const isPending = stream.has_pending_proposal;
@@ -580,6 +652,11 @@ function StreamCard({
           <span className="font-semibold text-tcs-gray-900 dark:text-tcs-gray-100 text-sm">
             {stream.name}
           </span>
+          {stream.priority > 0 && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-tcs-blue/10 text-tcs-blue dark:bg-tcs-blue/20 dark:text-tcs-blue-light font-medium">
+              P{stream.priority}
+            </span>
+          )}
           {!hasWeights && !isPending && (
             <span className="px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 font-medium">
               Weights needed
@@ -621,6 +698,14 @@ function StreamCard({
           ) : null}
           {canManage && (
             <>
+              <button
+                onClick={() => onSetPriority(stream)}
+                className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-tcs-blue hover:bg-tcs-blue/10
+                  dark:hover:bg-tcs-blue/20 transition-colors cursor-pointer"
+                title="Set allocation priority"
+              >
+                <ArrowUpDown size={13} />
+              </button>
               <button
                 onClick={() => onManageSmes(stream)}
                 className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-tcs-blue hover:bg-tcs-blue/10
@@ -689,6 +774,7 @@ export default function StreamManagementPage() {
   const [weightsTarget, setWeightsTarget] = useState<BatchStream | null>(null);
   const [reviewTarget, setReviewTarget] = useState<BatchStream | null>(null);
   const [manageSmeTarget, setManageSmeTarget] = useState<BatchStream | null>(null);
+  const [priorityTarget, setPriorityTarget] = useState<BatchStream | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [mySmeStreamIds, setMySmeStreamIds] = useState<Set<number>>(new Set());
 
@@ -752,8 +838,20 @@ export default function StreamManagementPage() {
 
   const handleProposalReviewed = (streamId: number) => {
     if (selectedBatch) fetchStreams(selectedBatch.batch_name);
-    // keep streams list in sync; fetchStreams handles the update
     void streamId;
+  };
+
+  const handlePrioritySaved = (updated: BatchStream) => {
+    setStreams((prev) =>
+      prev
+        .map((s) => (s.id === updated.id ? updated : s))
+        .sort((a, b) => {
+          if (a.priority === 0 && b.priority === 0) return 0;
+          if (a.priority === 0) return 1;
+          if (b.priority === 0) return -1;
+          return a.priority - b.priority;
+        }),
+    );
   };
 
   return (
@@ -790,6 +888,12 @@ export default function StreamManagementPage() {
         onClose={() => setManageSmeTarget(null)}
         stream={manageSmeTarget}
         batchName={selectedBatch?.batch_name ?? ''}
+      />
+      <SetPriorityModal
+        isOpen={!!priorityTarget}
+        onClose={() => setPriorityTarget(null)}
+        stream={priorityTarget}
+        onSaved={handlePrioritySaved}
       />
 
       {/* Page header */}
@@ -910,6 +1014,7 @@ export default function StreamManagementPage() {
                     onSetWeights={setWeightsTarget}
                     onReviewProposal={setReviewTarget}
                     onManageSmes={setManageSmeTarget}
+                    onSetPriority={setPriorityTarget}
                   />
                 ))}
               </div>
