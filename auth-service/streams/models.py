@@ -1,5 +1,13 @@
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, UniqueConstraint
+import enum
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.sql import func
 from database import Base
+
+
+class ProposalStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
 
 
 class BatchStream(Base):
@@ -19,3 +27,17 @@ class StreamSubjectWeight(Base):
     stream_id = Column(Integer, ForeignKey("batch_streams.id"), nullable=False, index=True)
     subject_name = Column(String, nullable=False)
     weight_pct = Column(Float, nullable=False)
+
+
+class StreamWeightProposal(Base):
+    __tablename__ = "stream_weight_proposals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stream_id = Column(Integer, ForeignKey("batch_streams.id"), nullable=False, index=True)
+    proposed_by_email = Column(String, nullable=False)
+    status = Column(Enum(ProposalStatus), default=ProposalStatus.pending, nullable=False, index=True)
+    proposed_weights_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reviewed_by_email = Column(String, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason = Column(String, nullable=True)

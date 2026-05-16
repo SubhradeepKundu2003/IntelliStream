@@ -1,5 +1,7 @@
+import enum
+from datetime import datetime
+from typing import List, Optional
 from pydantic import BaseModel, field_validator, model_validator
-from typing import List
 
 
 class SubjectWeightResponse(BaseModel):
@@ -8,12 +10,36 @@ class SubjectWeightResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProposalStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class WeightProposalResponse(BaseModel):
+    id: int
+    stream_id: int
+    proposed_by_email: str
+    status: ProposalStatus
+    proposed_weights: List[SubjectWeightResponse]
+    created_at: datetime
+    reviewed_by_email: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    model_config = {"from_attributes": True}
+
+
+class ProposalReview(BaseModel):
+    rejection_reason: Optional[str] = None
+
+
 class BatchStreamResponse(BaseModel):
     id: int
     batch_name: str
     name: str
     is_active: bool
     weights: List[SubjectWeightResponse] = []
+    has_pending_proposal: bool = False
     model_config = {"from_attributes": True}
 
 

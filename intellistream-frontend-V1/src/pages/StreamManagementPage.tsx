@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { GitBranch, Pencil, Plus, Sliders, Trash2 } from 'lucide-react';
+import { CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, XCircle } from 'lucide-react';
 import { streamsApi, syncApi } from '../services/api';
 import type { SyncedBatch } from '../types/sync';
-import type { BatchStream, StreamSubjectWeight } from '../types/streams';
+import type { BatchStream, StreamSubjectWeight, WeightProposal } from '../types/streams';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -70,17 +70,21 @@ function SetWeightsModal({
   onClose,
   stream,
   subjects,
+  userRole,
   onSaved,
 }: {
   isOpen: boolean;
   onClose: () => void;
   stream: BatchStream | null;
   subjects: string[];
+  userRole: string;
   onSaved: (updated: BatchStream) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const isSme = userRole === 'sme';
 
   useEffect(() => {
     if (!isOpen || !stream) return;
@@ -134,7 +138,9 @@ function SetWeightsModal({
     <Modal isOpen={isOpen} onClose={onClose} title={`Set Weights — ${stream.name}`} width="w-full max-w-lg">
       <div className="space-y-4">
         <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
-          Assign a percentage to each subject. All weights must total exactly 100%.
+          {isSme
+            ? 'Propose new subject weights. Your change will be sent for manager approval before taking effect.'
+            : 'Assign a percentage to each subject. All weights must total exactly 100%.'}
         </p>
 
         <div className="space-y-2.5">
@@ -159,7 +165,6 @@ function SetWeightsModal({
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-tcs-gray-400">%</span>
               </div>
-              {/* mini bar */}
               <div className="w-20 h-2 rounded-full bg-tcs-gray-100 dark:bg-tcs-gray-700 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-tcs-blue transition-all"
@@ -170,7 +175,6 @@ function SetWeightsModal({
           ))}
         </div>
 
-        {/* Total indicator */}
         <div className={`flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold
           ${totalOk
             ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
@@ -192,9 +196,188 @@ function SetWeightsModal({
           </button>
           <div className="flex gap-3">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button loading={loading} disabled={!totalOk} onClick={handleSave}>Save Weights</Button>
+            <Button loading={loading} disabled={!totalOk} onClick={handleSave}>
+              {isSme ? 'Submit for Approval' : 'Save Weights'}
+            </Button>
           </div>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Review proposal modal (manager / admin) ──────────────────────────
+function ReviewProposalModal({
+  isOpen,
+  onClose,
+  stream,
+  onReviewed,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  stream: BatchStream | null;
+  onReviewed: (streamId: number) => void;
+}) {
+  const [proposal, setProposal] = useState<WeightProposal | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<'approve' | 'reject' | null>(null);
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !stream) return;
+    setLoading(true);
+    setError('');
+    setProposal(null);
+    setShowRejectInput(false);
+    setRejectionReason('');
+    streamsApi.listProposals(stream.batch_name, stream.id)
+      .then(({ data }) => setProposal(data.find((p) => p.status === 'pending') ?? null))
+      .catch(() => setError('Failed to load proposal.'))
+      .finally(() => setLoading(false));
+  }, [isOpen, stream]);
+
+  const handleApprove = async () => {
+    if (!stream || !proposal) return;
+    setActionLoading('approve');
+    try {
+      await streamsApi.approveProposal(stream.batch_name, stream.id, proposal.id);
+      onReviewed(stream.id);
+      onClose();
+    } catch {
+      setError('Failed to approve proposal.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!stream || !proposal) return;
+    setActionLoading('reject');
+    try {
+      await streamsApi.rejectProposal(stream.batch_name, stream.id, proposal.id, {
+        rejection_reason: rejectionReason.trim() || undefined,
+      });
+      onReviewed(stream.id);
+      onClose();
+    } catch {
+      setError('Failed to reject proposal.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (!stream) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Review Proposal — ${stream.name}`} width="w-full max-w-lg">
+      <div className="space-y-4">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <span className="w-6 h-6 border-2 border-tcs-blue border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : !proposal ? (
+          <p className="text-sm text-tcs-gray-500 py-4 text-center">No pending proposal found.</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+              <Clock size={13} />
+              <span>Proposed by <strong className="text-tcs-gray-700 dark:text-tcs-gray-300">{proposal.proposed_by_email}</strong></span>
+              <span>·</span>
+              <span>{new Date(proposal.created_at).toLocaleString()}</span>
+            </div>
+
+            <div className="rounded-lg border border-tcs-gray-200 dark:border-tcs-gray-700 overflow-hidden">
+              <div className="px-4 py-2 bg-tcs-gray-50 dark:bg-tcs-gray-800 text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wider">
+                Proposed Weights
+              </div>
+              <div className="divide-y divide-tcs-gray-100 dark:divide-tcs-gray-700">
+                {proposal.proposed_weights.map((w) => {
+                  const current = stream.weights.find((cw) => cw.subject_name === w.subject_name);
+                  const changed = current ? Math.abs(current.weight_pct - w.weight_pct) > 0.001 : true;
+                  return (
+                    <div key={w.subject_name} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="w-28 shrink-0 text-sm text-tcs-gray-800 dark:text-tcs-gray-200">{w.subject_name}</span>
+                      <div className="flex-1 h-2 rounded-full bg-tcs-gray-100 dark:bg-tcs-gray-700 overflow-hidden">
+                        <div className="h-full rounded-full bg-tcs-blue" style={{ width: `${w.weight_pct}%` }} />
+                      </div>
+                      <span className={`text-sm font-medium w-14 text-right ${changed ? 'text-amber-600 dark:text-amber-400' : 'text-tcs-gray-700 dark:text-tcs-gray-300'}`}>
+                        {w.weight_pct}%
+                      </span>
+                      {changed && current && (
+                        <span className="text-xs text-tcs-gray-400 w-20 text-right">was {current.weight_pct}%</span>
+                      )}
+                      {changed && !current && (
+                        <span className="text-xs text-tcs-gray-400 w-20 text-right">new</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {showRejectInput && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-tcs-gray-600 dark:text-tcs-gray-400">
+                  Rejection reason (optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Explain why the proposal is being rejected..."
+                  className="w-full px-3 py-2 text-sm rounded-lg border outline-none resize-none transition-colors
+                    bg-tcs-white text-tcs-gray-900 dark:bg-tcs-gray-900 dark:text-tcs-gray-100
+                    border-tcs-gray-300 dark:border-tcs-gray-700
+                    focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
+                />
+              </div>
+            )}
+
+            {error && (
+              <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              <div className="flex gap-2">
+                {showRejectInput ? (
+                  <>
+                    <Button variant="secondary" onClick={() => setShowRejectInput(false)}>Back</Button>
+                    <Button
+                      loading={actionLoading === 'reject'}
+                      onClick={handleReject}
+                      className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+                    >
+                      <XCircle size={14} />
+                      Confirm Reject
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowRejectInput(true)}
+                      className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                    >
+                      <XCircle size={14} />
+                      Reject
+                    </Button>
+                    <Button
+                      loading={actionLoading === 'approve'}
+                      onClick={handleApprove}
+                      className="bg-green-600 hover:bg-green-700 text-white border-green-600"
+                    >
+                      <CheckCircle size={14} />
+                      Approve
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -207,40 +390,67 @@ function StreamCard({
   onRename,
   onDelete,
   onSetWeights,
+  onReviewProposal,
 }: {
   stream: BatchStream;
   canManage: boolean;
   onRename: (s: BatchStream) => void;
   onDelete: (s: BatchStream) => void;
   onSetWeights: (s: BatchStream) => void;
+  onReviewProposal: (s: BatchStream) => void;
 }) {
   const hasWeights = stream.weights.length > 0;
+  const isPending = stream.has_pending_proposal;
 
   return (
     <div className="rounded-xl border p-4
       bg-tcs-white dark:bg-tcs-gray-800
       border-tcs-gray-200 dark:border-tcs-gray-700">
       <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <GitBranch size={15} className="text-tcs-blue shrink-0" />
           <span className="font-semibold text-tcs-gray-900 dark:text-tcs-gray-100 text-sm">
             {stream.name}
           </span>
-          {!hasWeights && (
+          {!hasWeights && !isPending && (
             <span className="px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 font-medium">
               Weights needed
             </span>
           )}
+          {isPending && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">
+              <Clock size={11} />
+              Pending Approval
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onSetWeights(stream)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
-              text-tcs-blue hover:bg-tcs-blue/10 dark:hover:bg-tcs-blue/20 transition-colors cursor-pointer"
-          >
-            <Sliders size={13} />
-            Weights
-          </button>
+          {isPending && canManage ? (
+            <button
+              onClick={() => onReviewProposal(stream)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
+                text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20
+                hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors cursor-pointer"
+            >
+              <Clock size={13} />
+              Review
+            </button>
+          ) : isPending ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
+              text-tcs-gray-400 dark:text-tcs-gray-500 cursor-not-allowed select-none">
+              <Sliders size={13} />
+              Locked
+            </span>
+          ) : (
+            <button
+              onClick={() => onSetWeights(stream)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
+                text-tcs-blue hover:bg-tcs-blue/10 dark:hover:bg-tcs-blue/20 transition-colors cursor-pointer"
+            >
+              <Sliders size={13} />
+              Weights
+            </button>
+          )}
           {canManage && (
             <>
               <button
@@ -278,7 +488,7 @@ function StreamCard({
         </div>
       ) : (
         <p className="text-xs text-tcs-gray-400 dark:text-tcs-gray-500">
-          No subject weights configured yet. Click Weights to set them.
+          {isPending ? 'Proposed weights are awaiting approval.' : 'No subject weights configured yet. Click Weights to set them.'}
         </p>
       )}
     </div>
@@ -301,6 +511,7 @@ export default function StreamManagementPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [renameTarget, setRenameTarget] = useState<BatchStream | null>(null);
   const [weightsTarget, setWeightsTarget] = useState<BatchStream | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<BatchStream | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -354,6 +565,12 @@ export default function StreamManagementPage() {
     setStreams((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   };
 
+  const handleProposalReviewed = (streamId: number) => {
+    if (selectedBatch) fetchStreams(selectedBatch.batch_name);
+    // keep streams list in sync; fetchStreams handles the update
+    void streamId;
+  };
+
   return (
     <>
       <StreamNameModal
@@ -374,7 +591,14 @@ export default function StreamManagementPage() {
         onClose={() => setWeightsTarget(null)}
         stream={weightsTarget}
         subjects={selectedBatch?.subjects ?? []}
+        userRole={user?.role ?? ''}
         onSaved={handleWeightsSaved}
+      />
+      <ReviewProposalModal
+        isOpen={!!reviewTarget}
+        onClose={() => setReviewTarget(null)}
+        stream={reviewTarget}
+        onReviewed={handleProposalReviewed}
       />
 
       {/* Page header */}
@@ -492,6 +716,7 @@ export default function StreamManagementPage() {
                       handleDeleteStream(s);
                     }}
                     onSetWeights={setWeightsTarget}
+                    onReviewProposal={setReviewTarget}
                   />
                 ))}
               </div>

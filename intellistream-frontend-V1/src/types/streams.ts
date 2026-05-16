@@ -10,6 +10,7 @@ export interface BatchStream {
   name: string;
   is_active: boolean;
   weights: StreamSubjectWeight[];
+  has_pending_proposal: boolean;
 }
 
 export interface StreamCreate {
@@ -18,6 +19,20 @@ export interface StreamCreate {
 
 export interface WeightsSet {
   weights: StreamSubjectWeight[];
+}
+
+export type ProposalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface WeightProposal {
+  id: number;
+  stream_id: number;
+  proposed_by_email: string;
+  status: ProposalStatus;
+  proposed_weights: StreamSubjectWeight[];
+  created_at: string;
+  reviewed_by_email: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
 }
 
 // ── Global stream templates (agent 03 / StreamTemplatesPage) ──

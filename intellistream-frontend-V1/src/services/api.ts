@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { UserResponse } from '../types/auth';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
-import type { BatchStream, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightsSet } from '../types/streams';
+import type { BatchStream, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
 import type {
   BRCreate,
@@ -95,16 +95,22 @@ export const authApi = {
 };
 
 export const streamsApi = {
-  list:       (batchName: string) =>
-                api.get<BatchStream[]>(`/batches/${encodeURIComponent(batchName)}/streams`),
-  create:     (batchName: string, body: StreamCreate) =>
-                api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams`, body),
-  rename:     (batchName: string, streamId: number, body: StreamCreate) =>
-                api.put<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`, body),
-  remove:     (batchName: string, streamId: number) =>
-                api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`),
-  setWeights: (batchName: string, streamId: number, body: WeightsSet) =>
-                api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/weights`, body),
+  list:            (batchName: string) =>
+                     api.get<BatchStream[]>(`/batches/${encodeURIComponent(batchName)}/streams`),
+  create:          (batchName: string, body: StreamCreate) =>
+                     api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams`, body),
+  rename:          (batchName: string, streamId: number, body: StreamCreate) =>
+                     api.put<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`, body),
+  remove:          (batchName: string, streamId: number) =>
+                     api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`),
+  setWeights:      (batchName: string, streamId: number, body: WeightsSet) =>
+                     api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/weights`, body),
+  listProposals:   (batchName: string, streamId: number) =>
+                     api.get<WeightProposal[]>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/proposals`),
+  approveProposal: (batchName: string, streamId: number, proposalId: number) =>
+                     api.post<WeightProposal>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/proposals/${proposalId}/approve`),
+  rejectProposal:  (batchName: string, streamId: number, proposalId: number, body: { rejection_reason?: string }) =>
+                     api.post<WeightProposal>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/proposals/${proposalId}/reject`, body),
 };
 
 export const brApi = {
