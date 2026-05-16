@@ -19,6 +19,7 @@ from .schemas import (
     StreamCreate,
     StreamPrioritySet,
     StreamRename,
+    StreamTraineePctSet,
     SubjectWeightResponse,
     WeightProposalResponse,
     WeightsSet,
@@ -58,6 +59,7 @@ def _stream_response(stream: BatchStream, db: Session) -> BatchStreamResponse:
         name=stream.name,
         is_active=stream.is_active,
         priority=stream.priority,
+        trainee_pct=stream.trainee_pct or 0.0,
         weights=[SubjectWeightResponse(subject_name=w.subject_name, weight_pct=w.weight_pct) for w in weights],
         has_pending_proposal=has_pending,
     )
@@ -205,6 +207,37 @@ def set_stream_priority(
                 detail=f"Priority {body.priority} is already assigned to stream '{conflict.name}' in this batch",
             )
     stream.priority = body.priority
+    db.commit()
+    db.refresh(stream)
+    return _stream_response(stream, db)
+
+
+@router.patch("/{batch_name}/streams/{stream_id}/trainee-pct", response_model=BatchStreamResponse)
+def set_trainee_pct(
+    batch_name: str,
+    stream_id: int,
+    body: StreamTraineePctSet,
+    db: Session = Depends(get_db),
+    _=Depends(require_manager_or_above),
+):
+    stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
+    if not stream:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+
+    other_streams = (
+        db.query(BatchStream)
+        .filter(BatchStream.batch_name == batch_name, BatchStream.is_active == True, BatchStream.id != stream_id)
+        .all()
+    )
+    other_total = sum(s.trainee_pct or 0.0 for s in other_streams)
+    new_total = round(other_total + body.trainee_pct, 2)
+    if new_total > 100.0 + 0.01:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Trainee percentages across all streams in batch '{batch_name}' would total {new_total:.2f}% (max 100%)",
+        )
+
+    stream.trainee_pct = body.trainee_pct
     db.commit()
     db.refresh(stream)
     return _stream_response(stream, db)

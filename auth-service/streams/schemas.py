@@ -39,6 +39,7 @@ class BatchStreamResponse(BaseModel):
     name: str
     is_active: bool
     priority: int = 0
+    trainee_pct: float = 0.0
     weights: List[SubjectWeightResponse] = []
     has_pending_proposal: bool = False
     model_config = {"from_attributes": True}
@@ -91,6 +92,17 @@ class StreamPrioritySet(BaseModel):
         if v < 0:
             raise ValueError("Priority must be 0 (unranked) or a positive integer")
         return v
+
+
+class StreamTraineePctSet(BaseModel):
+    trainee_pct: float
+
+    @field_validator("trainee_pct")
+    @classmethod
+    def pct_in_range(cls, v: float) -> float:
+        if v < 0 or v > 100:
+            raise ValueError("Trainee percentage must be between 0 and 100")
+        return round(v, 2)
 
 
 class SMEAssignRequest(BaseModel):

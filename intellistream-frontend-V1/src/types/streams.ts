@@ -10,6 +10,7 @@ export interface BatchStream {
   name: string;
   is_active: boolean;
   priority: number;
+  trainee_pct: number;
   weights: StreamSubjectWeight[];
   has_pending_proposal: boolean;
 }
@@ -47,6 +48,29 @@ export interface SMEAssignment {
   assigned_by_email: string;
   assigned_at: string;
   is_active: boolean;
+}
+
+// ── AI stream suggestions ──
+export type SuggestionStatus = 'pending' | 'accepted' | 'ignored';
+
+export interface SuggestedWeight {
+  subject_name: string;
+  weight_pct: number;
+}
+
+export interface StreamSuggestion {
+  id: number;
+  batch_name: string;
+  generation_id: string;
+  name: string;
+  priority: number;
+  reasoning: string;
+  weights: SuggestedWeight[];
+  status: SuggestionStatus;
+  generated_by_email: string;
+  created_at: string;
+  reviewed_by_email: string | null;
+  reviewed_at: string | null;
 }
 
 // ── Global stream templates (agent 03 / StreamTemplatesPage) ──

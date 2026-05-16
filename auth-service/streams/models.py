@@ -20,6 +20,8 @@ class BatchStream(Base):
     is_active = Column(Boolean, default=True)
     # Lower value = higher allocation priority; 0 = unranked (allocated last)
     priority = Column(Integer, nullable=False, default=0, server_default="0")
+    # Percentage of batch trainees targeted for this stream; 0 = unset
+    trainee_pct = Column(Float, nullable=False, default=0.0, server_default="0")
 
 
 class StreamSubjectWeight(Base):

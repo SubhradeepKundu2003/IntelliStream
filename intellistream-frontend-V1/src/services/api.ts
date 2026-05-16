@@ -2,7 +2,7 @@ import axios from 'axios';
 import type { UserResponse } from '../types/auth';
 import type { Notification } from '../types/notifications';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
-import type { BatchStream, SMEAssignment, StreamCreate, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
+import type { BatchStream, SMEAssignment, StreamCreate, StreamSuggestion, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
 import type {
   BRCreate,
@@ -106,6 +106,8 @@ export const streamsApi = {
                      api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`),
   setPriority:     (batchName: string, streamId: number, priority: number) =>
                      api.patch<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/priority`, { priority }),
+  setTraineePct:   (batchName: string, streamId: number, trainee_pct: number) =>
+                     api.patch<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/trainee-pct`, { trainee_pct }),
   setWeights:      (batchName: string, streamId: number, body: WeightsSet) =>
                      api.post<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/weights`, body),
   listProposals:   (batchName: string, streamId: number) =>
@@ -125,6 +127,17 @@ export const streamsApi = {
                           api.post<SMEAssignment>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/smes`, { user_id: userId }),
   removeSme:            (batchName: string, streamId: number, userId: number) =>
                           api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/smes/${userId}`),
+};
+
+export const aiSuggestionsApi = {
+  generate: (batchName: string, body: { business_context?: string }) =>
+    api.post<StreamSuggestion[]>(`/batches/${encodeURIComponent(batchName)}/ai-suggestions/generate`, body),
+  list: (batchName: string) =>
+    api.get<StreamSuggestion[]>(`/batches/${encodeURIComponent(batchName)}/ai-suggestions`),
+  accept: (batchName: string, suggestionId: number) =>
+    api.post<StreamSuggestion>(`/batches/${encodeURIComponent(batchName)}/ai-suggestions/${suggestionId}/accept`),
+  ignore: (batchName: string, suggestionId: number) =>
+    api.post<StreamSuggestion>(`/batches/${encodeURIComponent(batchName)}/ai-suggestions/${suggestionId}/ignore`),
 };
 
 export const brApi = {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpDown, CheckCircle, Clock, GitBranch, Pencil, Plus, Sliders, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
-import { authApi, streamsApi, syncApi } from '../services/api';
+import { ArrowUpDown, CheckCircle, Clock, GitBranch, Pencil, Percent, Plus, Sliders, Sparkles, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
+import { aiSuggestionsApi, authApi, streamsApi, syncApi } from '../services/api';
 import type { SyncedBatch } from '../types/sync';
-import type { BatchStream, SMEAssignment, StreamSubjectWeight, WeightProposal } from '../types/streams';
+import type { BatchStream, SMEAssignment, StreamSuggestion, StreamSubjectWeight, WeightProposal } from '../types/streams';
 import type { UserResponse } from '../types/auth';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/ui/Button';
@@ -616,6 +616,373 @@ function SetPriorityModal({
   );
 }
 
+// ── Set trainee percentage modal ─────────────────────────────────────
+function SetTraineePctModal({
+  isOpen,
+  onClose,
+  stream,
+  allStreams,
+  onSaved,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  stream: BatchStream | null;
+  allStreams: BatchStream[];
+  onSaved: (updated: BatchStream) => void;
+}) {
+  const [value, setValue] = useState('0');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && stream) { setValue(String(stream.trainee_pct ?? 0)); setError(''); }
+  }, [isOpen, stream]);
+
+  const otherTotal = stream
+    ? allStreams.filter((s) => s.id !== stream.id).reduce((sum, s) => sum + (s.trainee_pct ?? 0), 0)
+    : 0;
+  const newTotal = otherTotal + (parseFloat(value) || 0);
+  const remaining = parseFloat((100 - otherTotal).toFixed(2));
+  const totalOk = Math.abs(newTotal - 100) <= 0.01;
+  const totalOver = newTotal > 100.01;
+
+  const handleSave = async () => {
+    if (!stream) return;
+    const pct = parseFloat(value);
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      setError('Percentage must be between 0 and 100');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const { data } = await streamsApi.setTraineePct(stream.batch_name, stream.id, pct);
+      onSaved(data);
+      onClose();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to set trainee percentage.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!stream) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Set Trainee Percentage — ${stream.name}`}>
+      <div className="space-y-4">
+        <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+          Assign what percentage of batch trainees should go into this stream.
+          All streams in the batch must total exactly <strong>100%</strong>.
+        </p>
+
+        <div className="px-3 py-2.5 rounded-lg bg-tcs-gray-50 dark:bg-tcs-gray-800 text-xs space-y-1.5">
+          <div className="flex justify-between text-tcs-gray-500 dark:text-tcs-gray-400">
+            <span>Other streams total</span>
+            <span className="font-medium">{otherTotal.toFixed(2)}%</span>
+          </div>
+          <div className="flex justify-between text-tcs-gray-500 dark:text-tcs-gray-400">
+            <span>Remaining for this stream</span>
+            <span className={`font-semibold ${remaining < 0 ? 'text-red-500' : 'text-tcs-blue'}`}>{remaining.toFixed(2)}%</span>
+          </div>
+        </div>
+
+        <Input
+          label="Trainee Percentage (0 = unset)"
+          type="number"
+          min={0}
+          max={100}
+          step={0.01}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          error={error}
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+        />
+
+        <div className={`flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold
+          ${totalOk
+            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+            : totalOver
+              ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'}`}>
+          <span>Batch total</span>
+          <span>
+            {newTotal.toFixed(2)} / 100%&nbsp;
+            {totalOk ? '✓' : totalOver ? `(+${(newTotal - 100).toFixed(2)})` : `(${(100 - newTotal).toFixed(2)} remaining)`}
+          </span>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button loading={loading} disabled={totalOver} onClick={handleSave}>Save Percentage</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── AI Suggestions modal (manager / admin) ───────────────────────────
+function AISuggestionsModal({
+  isOpen,
+  onClose,
+  batchName,
+  onStreamAccepted,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  batchName: string;
+  onStreamAccepted: () => void;
+}) {
+  const [suggestions, setSuggestions] = useState<StreamSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [context, setContext] = useState('');
+  const [showContext, setShowContext] = useState(false);
+  const [error, setError] = useState('');
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !batchName) return;
+    setLoading(true);
+    setError('');
+    aiSuggestionsApi.list(batchName)
+      .then(({ data }) => {
+        if (data.length > 0) {
+          const latestGenId = data[0].generation_id;
+          setSuggestions(data.filter((s) => s.generation_id === latestGenId));
+        } else {
+          setSuggestions([]);
+        }
+      })
+      .catch(() => setError('Failed to load suggestions.'))
+      .finally(() => setLoading(false));
+  }, [isOpen, batchName]);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError('');
+    try {
+      const { data } = await aiSuggestionsApi.generate(batchName, {
+        business_context: context.trim() || undefined,
+      });
+      setSuggestions(data);
+      setContext('');
+      setShowContext(false);
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to generate. Ensure Ollama is running on port 11434.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleAccept = async (s: StreamSuggestion) => {
+    setActionLoadingId(s.id);
+    setError('');
+    try {
+      const { data } = await aiSuggestionsApi.accept(batchName, s.id);
+      setSuggestions((prev) => prev.map((x) => (x.id === data.id ? data : x)));
+      onStreamAccepted();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to accept suggestion.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleIgnore = async (s: StreamSuggestion) => {
+    setActionLoadingId(s.id);
+    setError('');
+    try {
+      const { data } = await aiSuggestionsApi.ignore(batchName, s.id);
+      setSuggestions((prev) => prev.map((x) => (x.id === data.id ? data : x)));
+    } catch {
+      setError('Failed to ignore suggestion.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const pendingCount = suggestions.filter((s) => s.status === 'pending').length;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="AI Stream Suggestions" width="w-full max-w-2xl">
+      <div className="space-y-4">
+        {/* Header description */}
+        <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+          AI analyses the batch subjects and business requirements to suggest streams with priorities and subject weights.
+          Accept individual suggestions to instantly create the stream, or ignore ones that don't fit.
+        </p>
+
+        {/* Generate controls */}
+        <div className="flex flex-col gap-2">
+          {showContext && (
+            <textarea
+              rows={2}
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              placeholder="Optional: add extra business context for the AI (e.g. 'Focus on cloud-native roles')…"
+              className="w-full px-3 py-2 text-sm rounded-lg border outline-none resize-none transition-colors
+                bg-tcs-white text-tcs-gray-900 dark:bg-tcs-gray-900 dark:text-tcs-gray-100
+                border-tcs-gray-300 dark:border-tcs-gray-700
+                focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowContext((v) => !v)}
+              className="text-xs text-tcs-blue hover:underline cursor-pointer"
+            >
+              {showContext ? 'Hide context' : '+ Add context'}
+            </button>
+            <div className="flex-1" />
+            <Button loading={generating} onClick={handleGenerate}>
+              <Sparkles size={14} />
+              {suggestions.length === 0 ? 'Generate Suggestions' : 'Regenerate'}
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
+        )}
+
+        {/* Suggestions list */}
+        {loading ? (
+          <div className="flex justify-center py-10">
+            <span className="w-6 h-6 border-2 border-tcs-blue border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : generating ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <span className="w-8 h-8 border-2 border-tcs-blue border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-tcs-gray-500 dark:text-tcs-gray-400">
+              AI is analysing batch requirements… this may take up to 60 s
+            </p>
+          </div>
+        ) : suggestions.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 rounded-xl border border-dashed border-tcs-gray-200 dark:border-tcs-gray-700 text-center">
+            <Sparkles size={28} className="text-tcs-gray-300 dark:text-tcs-gray-600" />
+            <p className="text-sm text-tcs-gray-500 dark:text-tcs-gray-400">
+              No suggestions yet. Click <strong>Generate Suggestions</strong> to let the AI propose streams.
+            </p>
+          </div>
+        ) : (
+          <>
+            {pendingCount > 0 && (
+              <p className="text-xs text-tcs-gray-400 dark:text-tcs-gray-500">
+                {pendingCount} pending suggestion{pendingCount !== 1 ? 's' : ''} — accept to create the stream, or ignore to dismiss.
+              </p>
+            )}
+            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              {suggestions
+                .slice()
+                .sort((a, b) => a.priority - b.priority)
+                .map((s) => (
+                  <div
+                    key={s.id}
+                    className={[
+                      'rounded-xl border p-4 transition-opacity',
+                      s.status !== 'pending' ? 'opacity-60' : '',
+                      'bg-tcs-white dark:bg-tcs-gray-800 border-tcs-gray-200 dark:border-tcs-gray-700',
+                    ].join(' ')}
+                  >
+                    {/* Name + priority + status badge */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <GitBranch size={14} className="text-tcs-blue shrink-0" />
+                      <span className="font-semibold text-sm text-tcs-gray-900 dark:text-tcs-gray-100">
+                        {s.name}
+                      </span>
+                      {s.priority > 0 && (
+                        <span className="px-1.5 py-0.5 rounded text-xs bg-tcs-blue/10 text-tcs-blue dark:bg-tcs-blue/20 font-medium">
+                          P{s.priority}
+                        </span>
+                      )}
+                      {s.status === 'accepted' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">
+                          <CheckCircle size={11} /> Accepted
+                        </span>
+                      )}
+                      {s.status === 'ignored' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-tcs-gray-100 text-tcs-gray-500 dark:bg-tcs-gray-700 dark:text-tcs-gray-400 font-medium">
+                          <XCircle size={11} /> Ignored
+                        </span>
+                      )}
+                    </div>
+
+                    {/* AI reasoning */}
+                    <p className="text-xs italic text-tcs-gray-500 dark:text-tcs-gray-400 mb-2.5">
+                      {s.reasoning}
+                    </p>
+
+                    {/* Weight bars */}
+                    {s.weights.length > 0 && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-3">
+                        {s.weights.map((w) => (
+                          <div key={w.subject_name} className="flex items-center gap-1.5">
+                            <span className="text-xs text-tcs-gray-600 dark:text-tcs-gray-400 capitalize">
+                              {w.subject_name}
+                            </span>
+                            <div className="h-1.5 w-14 rounded-full bg-tcs-gray-100 dark:bg-tcs-gray-700 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-tcs-blue"
+                                style={{ width: `${w.weight_pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium text-tcs-gray-700 dark:text-tcs-gray-300">
+                              {w.weight_pct}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    {s.status === 'pending' && (
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => handleIgnore(s)}
+                          disabled={actionLoadingId === s.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                            text-tcs-gray-500 hover:text-tcs-gray-700 hover:bg-tcs-gray-100
+                            dark:hover:text-tcs-gray-300 dark:hover:bg-tcs-gray-700
+                            transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {actionLoadingId === s.id
+                            ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                            : <XCircle size={13} />}
+                          Ignore
+                        </button>
+                        <button
+                          onClick={() => handleAccept(s)}
+                          disabled={actionLoadingId === s.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                            bg-green-600 hover:bg-green-700 text-white
+                            transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {actionLoadingId === s.id
+                            ? <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                            : <CheckCircle size={13} />}
+                          Accept
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end pt-1">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Stream card ──────────────────────────────────────────────────────
 function StreamCard({
   stream,
@@ -627,6 +994,7 @@ function StreamCard({
   onReviewProposal,
   onManageSmes,
   onSetPriority,
+  onSetTraineePct,
 }: {
   stream: BatchStream;
   canManage: boolean;
@@ -637,6 +1005,7 @@ function StreamCard({
   onReviewProposal: (s: BatchStream) => void;
   onManageSmes: (s: BatchStream) => void;
   onSetPriority: (s: BatchStream) => void;
+  onSetTraineePct: (s: BatchStream) => void;
 }) {
   const hasWeights = stream.weights.length > 0;
   const isPending = stream.has_pending_proposal;
@@ -655,6 +1024,12 @@ function StreamCard({
           {stream.priority > 0 && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-tcs-blue/10 text-tcs-blue dark:bg-tcs-blue/20 dark:text-tcs-blue-light font-medium">
               P{stream.priority}
+            </span>
+          )}
+          {stream.trainee_pct > 0 && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-medium">
+              <Percent size={10} />
+              {stream.trainee_pct}% trainees
             </span>
           )}
           {!hasWeights && !isPending && (
@@ -705,6 +1080,14 @@ function StreamCard({
                 title="Set allocation priority"
               >
                 <ArrowUpDown size={13} />
+              </button>
+              <button
+                onClick={() => onSetTraineePct(stream)}
+                className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-purple-600 hover:bg-purple-50
+                  dark:hover:text-purple-400 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
+                title="Set trainee percentage"
+              >
+                <Percent size={13} />
               </button>
               <button
                 onClick={() => onManageSmes(stream)}
@@ -770,11 +1153,13 @@ export default function StreamManagementPage() {
   const [streamError, setStreamError] = useState('');
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
   const [renameTarget, setRenameTarget] = useState<BatchStream | null>(null);
   const [weightsTarget, setWeightsTarget] = useState<BatchStream | null>(null);
   const [reviewTarget, setReviewTarget] = useState<BatchStream | null>(null);
   const [manageSmeTarget, setManageSmeTarget] = useState<BatchStream | null>(null);
   const [priorityTarget, setPriorityTarget] = useState<BatchStream | null>(null);
+  const [traineePctTarget, setTraineePctTarget] = useState<BatchStream | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [mySmeStreamIds, setMySmeStreamIds] = useState<Set<number>>(new Set());
 
@@ -854,8 +1239,18 @@ export default function StreamManagementPage() {
     );
   };
 
+  const handleTraineePctSaved = (updated: BatchStream) => {
+    setStreams((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  };
+
   return (
     <>
+      <AISuggestionsModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        batchName={selectedBatch?.batch_name ?? ''}
+        onStreamAccepted={() => selectedBatch && fetchStreams(selectedBatch.batch_name)}
+      />
       <StreamNameModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
@@ -894,6 +1289,13 @@ export default function StreamManagementPage() {
         onClose={() => setPriorityTarget(null)}
         stream={priorityTarget}
         onSaved={handlePrioritySaved}
+      />
+      <SetTraineePctModal
+        isOpen={!!traineePctTarget}
+        onClose={() => setTraineePctTarget(null)}
+        stream={traineePctTarget}
+        allStreams={streams}
+        onSaved={handleTraineePctSaved}
       />
 
       {/* Page header */}
@@ -970,12 +1372,31 @@ export default function StreamManagementPage() {
                   <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 mt-0.5">
                     {streams.length} stream{streams.length !== 1 ? 's' : ''} configured
                   </p>
+                  {streams.length > 0 && (() => {
+                    const total = parseFloat(streams.reduce((sum, s) => sum + (s.trainee_pct ?? 0), 0).toFixed(2));
+                    const isComplete = Math.abs(total - 100) <= 0.01;
+                    const isOver = total > 100.01;
+                    return (
+                      <p className={`text-xs mt-0.5 font-medium ${isComplete ? 'text-green-600 dark:text-green-400' : isOver ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>
+                        Trainee allocation: {total.toFixed(2)}% / 100%{isComplete ? ' ✓' : isOver ? ' (over-allocated)' : ' (incomplete)'}
+                      </p>
+                    );
+                  })()}
                 </div>
                 {canManage && (
-                  <Button onClick={() => setShowAddModal(true)}>
-                    <Plus size={15} />
-                    Add Stream
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowAiModal(true)}
+                    >
+                      <Sparkles size={15} />
+                      AI Suggestions
+                    </Button>
+                    <Button onClick={() => setShowAddModal(true)}>
+                      <Plus size={15} />
+                      Add Stream
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1015,6 +1436,7 @@ export default function StreamManagementPage() {
                     onReviewProposal={setReviewTarget}
                     onManageSmes={setManageSmeTarget}
                     onSetPriority={setPriorityTarget}
+                    onSetTraineePct={setTraineePctTarget}
                   />
                 ))}
               </div>

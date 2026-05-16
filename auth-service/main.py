@@ -19,6 +19,7 @@ from stream_templates.routes import router as stream_templates_router
 from trainees.routes import trainee_router
 from batch_management.routes import router as batch_mgmt_router
 from business_requirements.routes import router as br_router
+from ai_suggestions.routes import router as ai_suggestions_router
 
 
 def _run_migrations() -> None:
@@ -29,6 +30,10 @@ def _run_migrations() -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE batch_streams ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"))
             print("[migration] Added 'priority' column to batch_streams")
+        if "trainee_pct" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE batch_streams ADD COLUMN trainee_pct FLOAT NOT NULL DEFAULT 0"))
+            print("[migration] Added 'trainee_pct' column to batch_streams")
 
 
 def _seed_admin(db: Session) -> None:
@@ -92,6 +97,7 @@ app.include_router(stream_templates_router)
 app.include_router(trainee_router)
 app.include_router(batch_mgmt_router)
 app.include_router(br_router)
+app.include_router(ai_suggestions_router)
 
 
 @app.get("/health")
