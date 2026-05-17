@@ -20,7 +20,8 @@ public class DpiService {
                 request.getTraineeId(),
                 request.getBatchName(),
                 request.getTraineeName(),
-                request.getDpi()
+                request.getDpi(),
+                request.getLocation()
         );
         return repository.save(record);
     }

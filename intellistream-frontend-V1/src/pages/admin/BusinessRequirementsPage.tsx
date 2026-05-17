@@ -209,6 +209,7 @@ function BRFormModal({ isOpen, onClose, onSaved, batches, editBr }: BRFormModalP
 
   const [title, setTitle] = useState('');
   const [batchName, setBatchName] = useState('');
+  const [location, setLocation] = useState('');
   const [streams, setStreams] = useState<StreamDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -224,6 +225,7 @@ function BRFormModal({ isOpen, onClose, onSaved, batches, editBr }: BRFormModalP
     if (editBr) {
       setTitle(editBr.title);
       setBatchName(editBr.batch_name);
+      setLocation(editBr.location ?? '');
       setStreams(
         editBr.streams.map((s) => ({
           _key: uid(),
@@ -238,6 +240,7 @@ function BRFormModal({ isOpen, onClose, onSaved, batches, editBr }: BRFormModalP
     } else {
       setTitle('');
       setBatchName(batches[0]?.batch_name ?? '');
+      setLocation('');
       setStreams(makeDefaultStreams());
     }
   }, [isOpen, editBr, batches]);
@@ -311,11 +314,12 @@ function BRFormModal({ isOpen, onClose, onSaved, batches, editBr }: BRFormModalP
     setApiError('');
     try {
       const streamPayload = streams.map(draftToCreate);
+      const locationVal = location.trim() || undefined;
       if (isEdit) {
-        const body: BRUpdate = { title: title.trim(), streams: streamPayload };
+        const body: BRUpdate = { title: title.trim(), location: locationVal, streams: streamPayload };
         await brApi.update(editBr!.id, body);
       } else {
-        const body: BRCreate = { batch_name: batchName, title: title.trim(), streams: streamPayload };
+        const body: BRCreate = { batch_name: batchName, title: title.trim(), location: locationVal, streams: streamPayload };
         await brApi.create(body);
       }
       onSaved();
@@ -387,6 +391,24 @@ function BRFormModal({ isOpen, onClose, onSaved, batches, editBr }: BRFormModalP
                 focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
             />
           </div>
+        </div>
+
+        {/* Location (lower priority — used as context for AI stream suggestions) */}
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-tcs-gray-700 dark:text-tcs-gray-300">
+            Location
+            <span className="ml-1.5 text-xs font-normal text-tcs-gray-400">(optional · used as context for AI stream suggestions)</span>
+          </label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="e.g. Bangalore, Chennai, Hyderabad"
+            className="px-3 py-2 rounded-lg text-sm border outline-none transition-colors
+              bg-tcs-white dark:bg-tcs-gray-800 text-tcs-gray-900 dark:text-tcs-gray-100
+              border-tcs-gray-300 dark:border-tcs-gray-700
+              focus:border-tcs-blue focus:ring-2 focus:ring-tcs-blue/20"
+          />
         </div>
 
         {/* Excel tools row */}
@@ -639,6 +661,7 @@ export default function BusinessRequirementsPage() {
               <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/50">
                 <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Title</th>
                 <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch</th>
+                <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Location</th>
                 <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Streams</th>
                 <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Created</th>
                 <th className="px-5 py-3 w-36" />
@@ -647,7 +670,7 @@ export default function BusinessRequirementsPage() {
             <tbody>
               {brs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-16">
+                  <td colSpan={6} className="text-center py-16">
                     <BookOpen size={36} className="mx-auto mb-3 text-tcs-gray-300 dark:text-tcs-gray-600" />
                     <p className="text-sm text-tcs-gray-500 dark:text-tcs-gray-400">
                       {batchFilter
@@ -675,6 +698,9 @@ export default function BusinessRequirementsPage() {
                       <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-tcs-blue/10 text-tcs-blue dark:bg-tcs-blue/20 dark:text-tcs-blue-light">
                         {br.batch_name}
                       </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+                      {br.location ?? <span className="italic text-tcs-gray-300 dark:text-tcs-gray-600">—</span>}
                     </td>
                     <td className="px-5 py-3.5 text-tcs-gray-600 dark:text-tcs-gray-400">
                       {br.stream_count} stream{br.stream_count !== 1 ? 's' : ''}

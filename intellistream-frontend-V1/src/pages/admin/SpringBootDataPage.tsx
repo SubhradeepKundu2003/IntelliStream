@@ -48,13 +48,26 @@ function BatchFilter({ batches, value, onChange }: { batches: string[]; value: s
   );
 }
 
-// ── Score chip ───────────────────────────────────────────────────────
+// ── Score chip (0–100 scale) ─────────────────────────────────────────
 function ScoreChip({ value }: { value: number }) {
   const pct = Math.round(value);
   const color =
     pct >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
     pct >= 60 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
                 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${color}`}>
+      {value.toFixed(1)}
+    </span>
+  );
+}
+
+// ── DPI chip (0–5 scale) ─────────────────────────────────────────────
+function DpiChip({ value }: { value: number }) {
+  const color =
+    value >= 4   ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+    value >= 2.5 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                   'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
   return (
     <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold ${color}`}>
       {value.toFixed(1)}
@@ -139,7 +152,8 @@ function DpiTable({ rows, batchNames }: { rows: SyncedDpiRecord[]; batchNames: s
     const matchesSearch = !q ||
       r.trainee_id.toLowerCase().includes(q) ||
       r.trainee_name.toLowerCase().includes(q) ||
-      r.batch_name.toLowerCase().includes(q);
+      r.batch_name.toLowerCase().includes(q) ||
+      (r.location ?? '').toLowerCase().includes(q);
     return matchesBatch && matchesSearch;
   });
 
@@ -147,7 +161,7 @@ function DpiTable({ rows, batchNames }: { rows: SyncedDpiRecord[]; batchNames: s
     <>
       <div className="flex items-center gap-3 flex-wrap">
         <BatchFilter batches={batchNames} value={batchFilter} onChange={setBatchFilter} />
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by ID or name…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by ID, name or location…" />
       </div>
       <div className="rounded-xl border overflow-hidden bg-tcs-white dark:bg-tcs-gray-800 border-tcs-gray-200 dark:border-tcs-gray-700">
         <table className="w-full text-sm">
@@ -156,13 +170,14 @@ function DpiTable({ rows, batchNames }: { rows: SyncedDpiRecord[]; batchNames: s
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Trainee ID</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Name</th>
+              <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Location</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">DPI Score</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={4} className="text-center py-12 text-tcs-gray-400">
+                <td colSpan={5} className="text-center py-12 text-tcs-gray-400">
                   {search || batchFilter ? 'No records match your filters.' : 'No DPI records found.'}
                 </td>
               </tr>
@@ -182,8 +197,11 @@ function DpiTable({ rows, batchNames }: { rows: SyncedDpiRecord[]; batchNames: s
                   <td className="px-5 py-3.5 font-medium text-tcs-gray-900 dark:text-tcs-gray-100">
                     {d.trainee_name}
                   </td>
+                  <td className="px-5 py-3.5 text-tcs-gray-500 dark:text-tcs-gray-400">
+                    {d.location ?? '—'}
+                  </td>
                   <td className="px-5 py-3.5">
-                    <ScoreChip value={d.dpi} />
+                    <DpiChip value={d.dpi} />
                   </td>
                 </tr>
               ))

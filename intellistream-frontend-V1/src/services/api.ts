@@ -4,6 +4,7 @@ import type { Notification } from '../types/notifications';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
 import type { BatchStream, SMEAssignment, StreamCreate, StreamSuggestion, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
+import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, TraineeAllocation } from '../types/allocation';
 import type {
   BRCreate,
   BRResponse,
@@ -199,6 +200,32 @@ export const notificationsApi = {
                   api.patch('/notifications/read-all'),
   remove:       (id: number) =>
                   api.delete(`/notifications/${id}`),
+};
+
+export const allocationApi = {
+  getConfig:  (batchName: string) =>
+                api.get<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/config`),
+  updateConfig: (batchName: string, body: { score_weight: number; dpi_weight: number }) =>
+                api.put<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/config`, body),
+  run:        (batchName: string) =>
+                api.post<AllocationRunResult>(`/allocation/${encodeURIComponent(batchName)}/run`),
+  list:       (batchName: string) =>
+                api.get<TraineeAllocation[]>(`/allocation/${encodeURIComponent(batchName)}`),
+  setOverride: (batchName: string, employeeId: string, body: { stream_id: number; reason: string }) =>
+                api.patch<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/override`, body),
+  clearOverride: (batchName: string, employeeId: string) =>
+                api.delete<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/override`),
+};
+
+export const allocationAiApi = {
+  generate: (batchName: string) =>
+    api.post<AllocationAIRecommendation[]>(
+      `/allocation/${encodeURIComponent(batchName)}/ai-recommendations/generate`,
+      undefined,
+      { timeout: 1800_000 }, // 30 min — matches backend httpx timeout
+    ),
+  list: (batchName: string) =>
+    api.get<AllocationAIRecommendation[]>(`/allocation/${encodeURIComponent(batchName)}/ai-recommendations`),
 };
 
 export const syncApi = {

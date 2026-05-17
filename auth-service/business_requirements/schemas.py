@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel
 
 
@@ -27,11 +27,13 @@ class BRStreamResponse(BaseModel):
 class BRCreate(BaseModel):
     batch_name: str
     title: str
+    location: Optional[str] = None
     streams: list[BRStreamCreate] = []
 
 
 class BRUpdate(BaseModel):
     title: str | None = None
+    location: Optional[str] = None
     streams: list[BRStreamCreate] | None = None
 
 
@@ -39,6 +41,7 @@ class BRResponse(BaseModel):
     id: int
     batch_name: str
     title: str
+    location: Optional[str] = None
     created_at: str
     is_active: bool
     streams: list[BRStreamResponse] = []
@@ -49,6 +52,7 @@ class BRSummary(BaseModel):
     id: int
     batch_name: str
     title: str
+    location: Optional[str] = None
     created_at: str
     is_active: bool
     stream_count: int

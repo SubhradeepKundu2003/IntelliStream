@@ -3,8 +3,7 @@ import re
 
 import httpx
 
-OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-MODEL_NAME = "gpt-oss:20b"
+from config import settings
 
 SYSTEM_PROMPT = """You are a training stream classification expert for IntelliStream, a corporate IT training management platform.
 
@@ -28,7 +27,7 @@ STRICT OUTPUT RULES:
 4. Each stream gets a unique integer priority (1 = highest priority, no duplicates)
 5. Suggest between 2 and 6 streams total — enough to cover business demand, not more
 6. Stream names must be specific and professional role titles
-7. "reasoning" must explain business alignment in 1-2 sentences, be concise
+7. "reasoning" must explain business alignment in 1-2 sentences, be concise; if a location is provided in the business requirements, mention it in the reasoning
 
 OUTPUT JSON FORMAT (return exactly this structure):
 {
@@ -67,7 +66,8 @@ def _build_user_prompt(
     if business_requirements:
         br_lines = []
         for br in business_requirements:
-            br_lines.append(f"Business Requirement: {br['title']}")
+            location_str = br.get("location") or "Not specified"
+            br_lines.append(f"Business Requirement: {br['title']} | Location: {location_str}")
             for s in br.get("streams", []):
                 roles = ", ".join(json.loads(s.get("roles_needed", "[]"))) or "N/A"
                 subjs = ", ".join(json.loads(s.get("subjects_needed", "[]"))) or "N/A"
@@ -147,7 +147,7 @@ async def generate_stream_suggestions(
 
     # Use the OpenAI-compatible endpoint that Ollama exposes at /v1/chat/completions
     payload = {
-        "model": MODEL_NAME,
+        "model": settings.OLLAMA_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -157,9 +157,9 @@ async def generate_stream_suggestions(
         "max_tokens": 4096,
     }
 
-    async with httpx.AsyncClient(timeout=600.0) as client:
+    async with httpx.AsyncClient(timeout=settings.OLLAMA_TIMEOUT) as client:
         resp = await client.post(
-            f"{OLLAMA_BASE_URL}/v1/chat/completions",
+            f"{settings.OLLAMA_BASE_URL}/v1/chat/completions",
             json=payload,
             headers={"Content-Type": "application/json"},
         )

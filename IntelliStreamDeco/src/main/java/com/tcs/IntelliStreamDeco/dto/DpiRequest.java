@@ -8,4 +8,5 @@ public class DpiRequest {
     private String batchName;
     private String traineeName;
     private Double dpi;
+    private String location;
 }

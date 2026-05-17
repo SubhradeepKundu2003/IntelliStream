@@ -45,6 +45,7 @@ async def run_sync() -> dict:
                 batch_name=d["batchName"],
                 trainee_name=d["traineeName"],
                 dpi=d["dpi"],
+                location=d.get("location"),
                 synced_at=now,
             ))
 

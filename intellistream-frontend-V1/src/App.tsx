@@ -13,6 +13,7 @@ import StreamManagementPage from './pages/StreamManagementPage';
 import StreamTemplatesPage from './pages/admin/StreamTemplatesPage';
 import TraineePage from './pages/admin/TraineePage';
 import BusinessRequirementsPage from './pages/admin/BusinessRequirementsPage';
+import AllocationPage from './pages/AllocationPage';
 import LandingPage from './pages/LandingPage';
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
                   <Route path="/admin/training-data" element={<SpringBootDataPage />} />
                   <Route path="/admin/business-requirements" element={<BusinessRequirementsPage />} />
                   <Route path="/admin/trainees" element={<TraineePage />} />
+                  <Route path="/allocation" element={<AllocationPage />} />
                 </Route>
               </Route>
             </Route>

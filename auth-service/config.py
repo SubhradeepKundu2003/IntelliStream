@@ -18,5 +18,9 @@ class Settings(BaseSettings):
     DPI_WEIGHT: float = 0.40
     SCORE_WEIGHT: float = 0.60
 
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "gpt-oss:20b"
+    OLLAMA_TIMEOUT: float = 1800.0
+
 
 settings = Settings()

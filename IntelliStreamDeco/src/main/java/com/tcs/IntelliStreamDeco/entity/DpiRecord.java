@@ -27,4 +27,7 @@ public class DpiRecord {
 
     @Column(nullable = false)
     private Double dpi;
+
+    @Column(nullable = true)
+    private String location;
 }

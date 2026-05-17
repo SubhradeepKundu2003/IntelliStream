@@ -71,6 +71,7 @@ async def generate_suggestions(
         )
         br_data.append({
             "title": br.title,
+            "location": br.location,
             "streams": [
                 {
                     "name": s.name,

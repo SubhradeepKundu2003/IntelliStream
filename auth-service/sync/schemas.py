@@ -17,6 +17,7 @@ class DpiRecordResponse(BaseModel):
     batch_name: str
     trainee_name: str
     dpi: float
+    location: Optional[str] = None
     synced_at: str
     model_config = {"from_attributes": True}
 

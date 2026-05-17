@@ -12,6 +12,7 @@ export interface SyncedDpiRecord {
   batch_name: string;
   trainee_name: string;
   dpi: number;
+  location: string | null;
   synced_at: string;
 }
 

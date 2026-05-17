@@ -20,6 +20,7 @@ from trainees.routes import trainee_router
 from batch_management.routes import router as batch_mgmt_router
 from business_requirements.routes import router as br_router
 from ai_suggestions.routes import router as ai_suggestions_router
+from allocation.routes import router as allocation_router
 
 
 def _run_migrations() -> None:
@@ -34,6 +35,13 @@ def _run_migrations() -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE batch_streams ADD COLUMN trainee_pct FLOAT NOT NULL DEFAULT 0"))
             print("[migration] Added 'trainee_pct' column to batch_streams")
+
+    if "business_requirements" in inspector.get_table_names():
+        br_cols = {c["name"] for c in inspector.get_columns("business_requirements")}
+        if "location" not in br_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE business_requirements ADD COLUMN location VARCHAR"))
+            print("[migration] Added 'location' column to business_requirements")
 
 
 def _seed_admin(db: Session) -> None:
@@ -98,6 +106,7 @@ app.include_router(trainee_router)
 app.include_router(batch_mgmt_router)
 app.include_router(br_router)
 app.include_router(ai_suggestions_router)
+app.include_router(allocation_router)
 
 
 @app.get("/health")

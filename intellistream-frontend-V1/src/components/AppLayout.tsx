@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { BookOpen, Database, GitBranch, GraduationCap, Layers, LayoutDashboard, LogOut, Users } from 'lucide-react';
+import { BookOpen, Database, GitBranch, GraduationCap, Layers, LayoutDashboard, LogOut, UserCheck, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ThemeToggle from './ui/ThemeToggle';
 import Badge from './ui/Badge';
@@ -16,6 +16,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',        to: '/home',                  icon: <LayoutDashboard size={18} />, roles: ['admin', 'manager', 'sme'] },
   { label: 'Stream Management', to: '/streams',             icon: <GitBranch size={18} />,       roles: ['admin', 'manager', 'sme'] },
+  { label: 'Trainee Allocation', to: '/allocation',         icon: <UserCheck size={18} />,       roles: ['admin', 'manager'] },
   { label: 'User Management',  to: '/admin/users',          icon: <Users size={18} />,           roles: ['admin'] },
   { label: 'Stream Templates', to: '/admin/stream-templates',      icon: <Layers size={18} />,        roles: ['admin', 'manager', 'sme'] },
   { label: 'Batch Management',   to: '/admin/trainees',           icon: <GraduationCap size={18} />, roles: ['admin', 'manager'] },

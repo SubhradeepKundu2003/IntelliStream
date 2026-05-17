@@ -8,6 +8,7 @@ class BusinessRequirement(Base):
     id = Column(Integer, primary_key=True, index=True)
     batch_name = Column(String, nullable=False, index=True)
     title = Column(String, nullable=False)
+    location = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
 

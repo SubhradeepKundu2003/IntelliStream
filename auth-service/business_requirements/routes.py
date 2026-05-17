@@ -57,6 +57,7 @@ def _br_full(br: BusinessRequirement, db: Session) -> BRResponse:
         id=br.id,
         batch_name=br.batch_name,
         title=br.title,
+        location=br.location,
         created_at=br.created_at,
         is_active=br.is_active,
         streams=[_stream_resp(s) for s in streams],
@@ -215,6 +216,7 @@ def list_brs(
             id=br.id,
             batch_name=br.batch_name,
             title=br.title,
+            location=br.location,
             created_at=br.created_at,
             is_active=br.is_active,
             stream_count=count,
@@ -233,6 +235,7 @@ def create_br(body: BRCreate, db: Session = Depends(get_db), _=Depends(require_m
     br = BusinessRequirement(
         batch_name=body.batch_name,
         title=body.title,
+        location=body.location,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     db.add(br)
@@ -268,6 +271,8 @@ def update_br(br_id: int, body: BRUpdate, db: Session = Depends(get_db), _=Depen
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business requirement not found")
     if body.title is not None:
         br.title = body.title
+    if body.location is not None:
+        br.location = body.location
     if body.streams is not None:
         db.query(BRStream).filter(BRStream.br_id == br_id).update({"is_active": False})
         _bulk_insert_streams(br_id, body.streams, db)
