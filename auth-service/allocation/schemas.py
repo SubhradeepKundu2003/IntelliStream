@@ -73,6 +73,17 @@ class ManualOverrideRequest(BaseModel):
     reason: str
 
 
+class AllocationRunRequest(BaseModel):
+    mode: str = "priority"  # "priority" or "fit_score"
+
+    @field_validator("mode")
+    @classmethod
+    def valid_mode(cls, v: str) -> str:
+        if v not in ("priority", "fit_score"):
+            raise ValueError("mode must be 'priority' or 'fit_score'")
+        return v
+
+
 class AllocationRunResult(BaseModel):
     batch_name: str
     total: int
@@ -80,6 +91,7 @@ class AllocationRunResult(BaseModel):
     unallocated: int
     run_by_email: str
     run_at: datetime
+    mode: str = "priority"
 
 
 class AllocationAIRecommendationResponse(BaseModel):

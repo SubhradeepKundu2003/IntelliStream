@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, Brain, ChevronDown, ChevronRight, Download, Info, Loader2,
-  Lock, Play, RefreshCw, Sliders, Unlock, UserCheck, UserX, Users, X,
+  AlertCircle, ArrowDownUp, Brain, ChevronDown, ChevronRight, Download, Filter,
+  Info, Loader2, Lock, Play, RefreshCw, Sliders, SortDesc, Unlock, UserCheck, UserX, Users, X,
 } from 'lucide-react';
 import { allocationAiApi, allocationApi, smeRequestsApi, streamsApi, syncApi } from '../services/api';
 import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, SMEAssociateRequest, SMERequestStatus, TraineeAllocation } from '../types/allocation';
@@ -46,6 +46,97 @@ function statusBadgeClass(s: SMERequestStatus) {
 
 function statusLabel(s: SMERequestStatus) {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── Run Mode Modal ────────────────────────────────────────────────────────────
+
+function RunModeModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  loading,
+  isRerun,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (mode: 'priority' | 'fit_score') => void;
+  loading: boolean;
+  isRerun: boolean;
+}) {
+  const [mode, setMode] = useState<'priority' | 'fit_score'>('priority');
+
+  useEffect(() => { if (isOpen) setMode('priority'); }, [isOpen]);
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={isRerun ? 'Re-run Allocation' : 'Run Allocation'} width="w-full max-w-md">
+      <div className="space-y-4">
+        <p className="text-sm text-tcs-gray-600 dark:text-tcs-gray-400">
+          Choose how trainees should be assigned to streams:
+        </p>
+
+        <div className="space-y-3">
+          <label
+            className={`flex items-start gap-3 rounded-xl border-2 p-4 cursor-pointer transition-colors
+              ${mode === 'priority'
+                ? 'border-tcs-blue bg-blue-50 dark:bg-tcs-blue/10'
+                : 'border-tcs-gray-200 dark:border-tcs-gray-700 hover:border-tcs-gray-300 dark:hover:border-tcs-gray-600'}`}
+          >
+            <input
+              type="radio"
+              name="alloc-mode"
+              value="priority"
+              checked={mode === 'priority'}
+              onChange={() => setMode('priority')}
+              className="mt-0.5 accent-tcs-blue"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <ArrowDownUp size={15} className="text-tcs-blue shrink-0" />
+                <p className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">By Stream Priority</p>
+                <span className="text-xs bg-tcs-blue/10 text-tcs-blue px-1.5 py-0.5 rounded">Default</span>
+              </div>
+              <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 mt-1 leading-relaxed">
+                Fills streams in priority order. Each stream gets its configured capacity (%). Trainees are ranked by composite score within each stream.
+              </p>
+            </div>
+          </label>
+
+          <label
+            className={`flex items-start gap-3 rounded-xl border-2 p-4 cursor-pointer transition-colors
+              ${mode === 'fit_score'
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/10'
+                : 'border-tcs-gray-200 dark:border-tcs-gray-700 hover:border-tcs-gray-300 dark:hover:border-tcs-gray-600'}`}
+          >
+            <input
+              type="radio"
+              name="alloc-mode"
+              value="fit_score"
+              checked={mode === 'fit_score'}
+              onChange={() => setMode('fit_score')}
+              className="mt-0.5 accent-purple-500"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <SortDesc size={15} className="text-purple-500 shrink-0" />
+                <p className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">By Stream Fit Score</p>
+              </div>
+              <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 mt-1 leading-relaxed">
+                Each trainee is assigned to the stream where they have the highest composite fit score. Ignores stream capacity limits.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button onClick={() => onConfirm(mode)} loading={loading}>
+            <Play size={14} />
+            {isRerun ? 'Re-run' : 'Run'} Allocation
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 // ── SME Request Modal (create) ────────────────────────────────────────────────
@@ -560,6 +651,12 @@ export default function AllocationPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [overrideTarget, setOverrideTarget] = useState<TraineeAllocation | null>(null);
   const [search, setSearch] = useState('');
+  const [showRunModal, setShowRunModal] = useState(false);
+
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<'all' | 'allocated' | 'unallocated'>('all');
+  const [suggestedStreamFilter, setSuggestedStreamFilter] = useState<string>('all');
+  const [effectiveStreamFilter, setEffectiveStreamFilter] = useState<string>('all');
 
   // Config edit state
   const [editScore, setEditScore] = useState(60);
@@ -606,12 +703,13 @@ export default function AllocationPage() {
     if (selectedBatch) loadBatchData(selectedBatch);
   }, [selectedBatch, loadBatchData]);
 
-  const handleRun = async () => {
+  const handleRun = async (mode: 'priority' | 'fit_score') => {
     if (!selectedBatch) return;
+    setShowRunModal(false);
     setLoadingRun(true);
     setError('');
     try {
-      const res = await allocationApi.run(selectedBatch);
+      const res = await allocationApi.run(selectedBatch, mode);
       setLastRunResult(res.data);
       await loadBatchData(selectedBatch);
     } catch (e: unknown) {
@@ -770,12 +868,32 @@ export default function AllocationPage() {
 
   const filtered = allocations.filter((a) => {
     const q = search.toLowerCase();
-    return (
+    const matchesSearch =
       a.trainee_name.toLowerCase().includes(q) ||
       a.employee_id.toLowerCase().includes(q) ||
-      (a.effective_stream_name ?? '').toLowerCase().includes(q)
-    );
+      (a.effective_stream_name ?? '').toLowerCase().includes(q) ||
+      (a.suggested_stream_name ?? '').toLowerCase().includes(q);
+
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'allocated' && a.effective_stream_name !== null) ||
+      (statusFilter === 'unallocated' && a.effective_stream_name === null);
+
+    const matchesSuggested =
+      suggestedStreamFilter === 'all' ||
+      (suggestedStreamFilter === '__none__' && a.suggested_stream_name === null) ||
+      a.suggested_stream_name === suggestedStreamFilter;
+
+    const matchesEffective =
+      effectiveStreamFilter === 'all' ||
+      (effectiveStreamFilter === '__none__' && a.effective_stream_name === null) ||
+      a.effective_stream_name === effectiveStreamFilter;
+
+    return matchesSearch && matchesStatus && matchesSuggested && matchesEffective;
   });
+
+  const uniqueSuggestedStreams = [...new Set(allocations.map((a) => a.suggested_stream_name).filter(Boolean))] as string[];
+  const uniqueEffectiveStreams = [...new Set(allocations.map((a) => a.effective_stream_name).filter(Boolean))] as string[];
 
   const isBatchFrozen = config?.is_frozen ?? false;
 
@@ -795,7 +913,7 @@ export default function AllocationPage() {
         {/* Batch selector */}
         <select
           value={selectedBatch}
-          onChange={(e) => { setSelectedBatch(e.target.value); setSearch(''); }}
+          onChange={(e) => { setSelectedBatch(e.target.value); setSearch(''); setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); }}
           className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
             bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
             px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue min-w-[200px]"
@@ -891,7 +1009,7 @@ export default function AllocationPage() {
               )}
 
               {lastRunResult && (
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2">
                   <div className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2.5 py-1 rounded-full">
                     <UserCheck size={12} />
                     {lastRunResult.allocated} allocated
@@ -902,6 +1020,10 @@ export default function AllocationPage() {
                       {lastRunResult.unallocated} unallocated
                     </div>
                   )}
+                  <div className="flex items-center gap-1.5 text-xs text-tcs-gray-500 dark:text-tcs-gray-400 bg-tcs-gray-100 dark:bg-tcs-gray-700 px-2.5 py-1 rounded-full">
+                    {lastRunResult.mode === 'fit_score' ? <SortDesc size={12} /> : <ArrowDownUp size={12} />}
+                    {lastRunResult.mode === 'fit_score' ? 'Fit Score' : 'Priority'} mode
+                  </div>
                 </div>
               )}
 
@@ -923,7 +1045,7 @@ export default function AllocationPage() {
 
               {canManage && (
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleRun} loading={loadingRun} disabled={!selectedBatch || isBatchFrozen}>
+                  <Button onClick={() => setShowRunModal(true)} loading={loadingRun} disabled={!selectedBatch || isBatchFrozen}>
                     <Play size={14} />
                     {config?.last_run_at ? 'Re-run Allocation' : 'Run Allocation'}
                   </Button>
@@ -1065,50 +1187,127 @@ export default function AllocationPage() {
           {/* Table */}
           <div className="rounded-xl border border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-white dark:bg-tcs-gray-800 overflow-hidden">
             {/* Table header */}
-            <div className="px-5 py-4 border-b border-tcs-gray-200 dark:border-tcs-gray-700 flex items-center justify-between gap-4">
-              <h2 className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">
-                Allocation Results
-                {allocations.length > 0 && (
-                  <span className="ml-2 text-xs font-normal text-tcs-gray-400">
-                    {allocations.length} trainees
-                    {allocations.filter((a) => a.manual_stream_id).length > 0 &&
-                      ` · ${allocations.filter((a) => a.manual_stream_id).length} overridden`}
-                    {[...aiRecommendations.values()].filter((r) => !r.agrees_with_algorithm).length > 0 &&
-                      ` · ${[...aiRecommendations.values()].filter((r) => !r.agrees_with_algorithm).length} AI flagged`}
-                  </span>
-                )}
-              </h2>
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  placeholder="Search trainee, stream…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
-                    bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
-                    px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue w-52"
-                />
-                {allocations.length > 0 && (
+            <div className="px-5 py-4 border-b border-tcs-gray-200 dark:border-tcs-gray-700 space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">
+                  Allocation Results
+                  {allocations.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-tcs-gray-400">
+                      {filtered.length !== allocations.length ? `${filtered.length} of ` : ''}{allocations.length} trainees
+                      {allocations.filter((a) => a.manual_stream_id).length > 0 &&
+                        ` · ${allocations.filter((a) => a.manual_stream_id).length} overridden`}
+                      {[...aiRecommendations.values()].filter((r) => !r.agrees_with_algorithm).length > 0 &&
+                        ` · ${[...aiRecommendations.values()].filter((r) => !r.agrees_with_algorithm).length} AI flagged`}
+                    </span>
+                  )}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Search trainee, stream…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                      bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                      px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue w-48"
+                  />
+                  {allocations.length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleExport}
+                      loading={loadingExport}
+                      title="Download allocation as Excel"
+                    >
+                      <Download size={14} />
+                      Export
+                    </Button>
+                  )}
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
-                    onClick={handleExport}
-                    loading={loadingExport}
-                    title="Download allocation as Excel"
+                    onClick={() => loadBatchData(selectedBatch)}
+                    disabled={loadingData}
                   >
-                    <Download size={14} />
-                    Export
+                    <RefreshCw size={14} className={loadingData ? 'animate-spin' : ''} />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => loadBatchData(selectedBatch)}
-                  disabled={loadingData}
-                >
-                  <RefreshCw size={14} className={loadingData ? 'animate-spin' : ''} />
-                </Button>
+                </div>
               </div>
+
+              {allocations.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Allocation status filter */}
+                  <div className="flex items-center gap-1 bg-tcs-gray-100 dark:bg-tcs-gray-900/50 rounded-lg p-0.5">
+                    {(['all', 'allocated', 'unallocated'] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setStatusFilter(f)}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors
+                          ${statusFilter === f
+                            ? 'bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100 shadow-sm'
+                            : 'text-tcs-gray-500 dark:text-tcs-gray-400 hover:text-tcs-gray-700 dark:hover:text-tcs-gray-300'}`}
+                      >
+                        {f === 'all' ? `All (${allocations.length})` :
+                         f === 'allocated' ? `Allocated (${allocations.filter((a) => a.effective_stream_name !== null).length})` :
+                         `Unallocated (${allocations.filter((a) => a.effective_stream_name === null).length})`}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Suggested stream filter */}
+                  {uniqueSuggestedStreams.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Filter size={12} className="text-tcs-gray-400 shrink-0" />
+                      <span className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 whitespace-nowrap">Suggested:</span>
+                      <select
+                        value={suggestedStreamFilter}
+                        onChange={(e) => setSuggestedStreamFilter(e.target.value)}
+                        className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                          bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                          px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-tcs-blue"
+                      >
+                        <option value="all">All streams</option>
+                        <option value="__none__">Unallocated</option>
+                        {uniqueSuggestedStreams.sort().map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Effective stream filter */}
+                  {uniqueEffectiveStreams.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Filter size={12} className="text-purple-400 shrink-0" />
+                      <span className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 whitespace-nowrap">Effective:</span>
+                      <select
+                        value={effectiveStreamFilter}
+                        onChange={(e) => setEffectiveStreamFilter(e.target.value)}
+                        className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                          bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                          px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="all">All streams</option>
+                        <option value="__none__">Unallocated</option>
+                        {uniqueEffectiveStreams.sort().map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Clear filters */}
+                  {(statusFilter !== 'all' || suggestedStreamFilter !== 'all' || effectiveStreamFilter !== 'all') && (
+                    <button
+                      onClick={() => { setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); }}
+                      className="text-xs text-tcs-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center gap-1"
+                    >
+                      <X size={11} />
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {loadingData ? (
@@ -1227,7 +1426,7 @@ export default function AllocationPage() {
                                     Differs
                                   </span>
                                   {rec.recommended_stream_name && (
-                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 max-w-[140px] truncate" title={rec.recommended_stream_name}>
+                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 max-w-35 truncate" title={rec.recommended_stream_name}>
                                       → {rec.recommended_stream_name}
                                     </p>
                                   )}
@@ -1243,7 +1442,7 @@ export default function AllocationPage() {
                                 <span className="text-purple-700 dark:text-purple-300 font-medium">
                                   {alloc.manual_stream_name}
                                 </span>
-                                <p className="text-xs text-tcs-gray-400 mt-0.5 max-w-[160px] truncate" title={alloc.manual_override_reason ?? ''}>
+                                <p className="text-xs text-tcs-gray-400 mt-0.5 max-w-40 truncate" title={alloc.manual_override_reason ?? ''}>
                                   {alloc.manual_override_reason}
                                 </p>
                               </div>
@@ -1359,6 +1558,14 @@ export default function AllocationPage() {
           <p className="text-sm">Select a batch to view and manage allocations</p>
         </div>
       )}
+
+      <RunModeModal
+        isOpen={showRunModal}
+        onClose={() => setShowRunModal(false)}
+        onConfirm={handleRun}
+        loading={loadingRun}
+        isRerun={!!config?.last_run_at}
+      />
 
       <OverrideModal
         isOpen={overrideTarget !== null}

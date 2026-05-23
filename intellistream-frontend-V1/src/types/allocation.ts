@@ -47,6 +47,7 @@ export interface AllocationRunResult {
   unallocated: number;
   run_by_email: string;
   run_at: string;
+  mode: 'priority' | 'fit_score';
 }
 
 export interface AllocationAIRecommendation {

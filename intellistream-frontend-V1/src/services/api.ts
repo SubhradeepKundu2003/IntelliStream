@@ -209,8 +209,8 @@ export const allocationApi = {
                 api.get<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/config`),
   updateConfig: (batchName: string, body: { score_weight: number; dpi_weight: number }) =>
                 api.put<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/config`, body),
-  run:        (batchName: string) =>
-                api.post<AllocationRunResult>(`/allocation/${encodeURIComponent(batchName)}/run`),
+  run:        (batchName: string, mode: 'priority' | 'fit_score' = 'priority') =>
+                api.post<AllocationRunResult>(`/allocation/${encodeURIComponent(batchName)}/run`, { mode }),
   list:       (batchName: string) =>
                 api.get<TraineeAllocation[]>(`/allocation/${encodeURIComponent(batchName)}`),
   setOverride: (batchName: string, employeeId: string, body: { stream_id: number; reason: string }) =>

@@ -59,7 +59,7 @@ def _compute_stream_score(
     return round(composite * 100, 2), round(weighted_subj, 2)
 
 
-def run_allocation(batch_name: str, triggered_by: str, db: Session) -> dict:
+def run_allocation(batch_name: str, triggered_by: str, db: Session, mode: str = "priority") -> dict:
     cfg = get_or_create_config(batch_name, db)
 
     # ── 1. Preserve existing manual overrides ──────────────────────────
@@ -116,26 +116,35 @@ def run_allocation(batch_name: str, triggered_by: str, db: Session) -> dict:
             "stream_scores": stream_scores,
         }
 
-    # ── 4. Greedy allocation by stream priority ─────────────────────────
+    # ── 4. Allocation ─────────────────────────────────────────────────────
     total = len(trainee_data)
     suggestions: dict[str, int] = {}  # employee_id → stream_id
     unallocated_pool = set(trainee_data.keys())
 
-    # Manually overridden trainees don't compete for seats but still get suggestions
-    for stream in streams:
-        cap = max(1, round(stream.trainee_pct / 100 * total)) if stream.trainee_pct > 0 else 0
-        if cap == 0:
-            continue
+    if mode == "fit_score":
+        # Assign each trainee to the stream where they score highest
+        for tid, data in trainee_data.items():
+            if not data["stream_scores"]:
+                continue
+            best_sid = max(data["stream_scores"].keys(), key=lambda sid: data["stream_scores"][sid]["composite"])
+            suggestions[tid] = best_sid
+        unallocated_pool = set(trainee_data.keys()) - set(suggestions.keys())
+    else:
+        # Greedy fill by stream priority (default)
+        for stream in streams:
+            cap = max(1, round(stream.trainee_pct / 100 * total)) if stream.trainee_pct > 0 else 0
+            if cap == 0:
+                continue
 
-        candidates = sorted(
-            [(tid, trainee_data[tid]["stream_scores"].get(stream.id, {}).get("composite", 0.0))
-             for tid in unallocated_pool],
-            key=lambda x: x[1],
-            reverse=True,
-        )
-        for tid, _ in candidates[:cap]:
-            suggestions[tid] = stream.id
-            unallocated_pool.discard(tid)
+            candidates = sorted(
+                [(tid, trainee_data[tid]["stream_scores"].get(stream.id, {}).get("composite", 0.0))
+                 for tid in unallocated_pool],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            for tid, _ in candidates[:cap]:
+                suggestions[tid] = stream.id
+                unallocated_pool.discard(tid)
 
     # ── 5. Write allocations ────────────────────────────────────────────
     for tid, data in trainee_data.items():
@@ -170,7 +179,7 @@ def run_allocation(batch_name: str, triggered_by: str, db: Session) -> dict:
     cfg.run_by_email = triggered_by
     db.commit()
 
-    logger.info("[allocation] %s — total=%d allocated=%d", batch_name, total, len(suggestions))
+    logger.info("[allocation] %s — mode=%s total=%d allocated=%d", batch_name, mode, total, len(suggestions))
     return {
         "batch_name": batch_name,
         "total": total,
@@ -178,4 +187,5 @@ def run_allocation(batch_name: str, triggered_by: str, db: Session) -> dict:
         "unallocated": len(unallocated_pool),
         "run_by_email": triggered_by,
         "run_at": cfg.last_run_at,
+        "mode": mode,
     }

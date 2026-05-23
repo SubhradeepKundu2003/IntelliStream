@@ -23,6 +23,7 @@ from .schemas import (
     AllocationAIRecommendationResponse,
     AllocationConfigResponse,
     AllocationConfigUpdate,
+    AllocationRunRequest,
     AllocationRunResult,
     ManualOverrideRequest,
     SMEAssociateRequestCreate,
@@ -133,13 +134,14 @@ def update_config(
 @router.post("/{batch_name}/run", response_model=AllocationRunResult)
 def trigger_allocation(
     batch_name: str,
+    body: AllocationRunRequest = AllocationRunRequest(),
     db: Session = Depends(get_db),
     current_user=Depends(require_manager_or_above),
 ):
     cfg = get_or_create_config(batch_name, db)
     if cfg.is_frozen:
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail="Allocation is frozen. Unfreeze the batch before re-running.")
-    result = run_allocation(batch_name, current_user.email, db)
+    result = run_allocation(batch_name, current_user.email, db, mode=body.mode)
     return result
 
 
