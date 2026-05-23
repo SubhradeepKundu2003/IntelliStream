@@ -1,9 +1,19 @@
+import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.sql import func
 
 from database import Base
+
+
+class RequestStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    partially_approved = "partially_approved"
+    rejected = "rejected"
+    cancelled = "cancelled"
 
 
 class AllocationConfig(Base):
@@ -16,6 +26,10 @@ class AllocationConfig(Base):
     dpi_weight = Column(Float, nullable=False, default=0.40)
     last_run_at = Column(DateTime(timezone=True), nullable=True)
     run_by_email = Column(String, nullable=True)
+    # Batch-level freeze — blocks re-runs, config edits, and overrides
+    is_frozen = Column(Boolean, nullable=False, default=False)
+    frozen_at = Column(DateTime(timezone=True), nullable=True)
+    frozen_by_email = Column(String, nullable=True)
 
 
 class TraineeAllocation(Base):
@@ -46,6 +60,11 @@ class TraineeAllocation(Base):
     # Per-stream composite scores for transparency: {"<stream_id>": {"composite": X, "subject_score": Y}}
     all_stream_scores_json = Column(Text, nullable=True)
 
+    # Trainee-level freeze — blocks overrides for this specific trainee
+    is_frozen = Column(Boolean, nullable=False, default=False)
+    frozen_at = Column(DateTime(timezone=True), nullable=True)
+    frozen_by_email = Column(String, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -65,4 +84,23 @@ class AllocationAIRecommendation(Base):
     reasoning = Column(Text, nullable=False)
 
     generated_by_email = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SMEAssociateRequest(Base):
+    __tablename__ = "sme_associate_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_name = Column(String, nullable=False, index=True)
+    stream_id = Column(Integer, ForeignKey("batch_streams.id"), nullable=False, index=True)
+    sme_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sme_email = Column(String, nullable=False)
+    # JSON array of employee_ids (max 5): ["EMP001", "EMP002", ...]
+    requested_employee_ids = Column(Text, nullable=False)
+    status = Column(SAEnum(RequestStatus), default=RequestStatus.pending, nullable=False, index=True)
+    # JSON array of approved employee_ids (subset of requested)
+    approved_employee_ids = Column(Text, nullable=True)
+    reviewed_by_email = Column(String, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

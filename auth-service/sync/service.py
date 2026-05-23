@@ -20,48 +20,75 @@ async def _fetch(client: httpx.AsyncClient, path: str) -> list:
     return resp.json()
 
 
-async def run_sync() -> dict:
+async def run_sync(preserve_excel: bool = False) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     db: Session = SessionLocal()
     try:
+        from scores_upload.models import ExcelBatchRegistry
+        excel_batches: set[str] = set()
+        if preserve_excel:
+            excel_batches = {r.batch_name for r in db.query(ExcelBatchRegistry).all()}
+
         async with httpx.AsyncClient() as client:
             batches_raw = await _fetch(client, "/api/subjects")
             dpi_raw = await _fetch(client, "/api/dpi")
             scores_raw = await _fetch(client, "/api/scores")
 
-        db.query(SyncedBatch).delete()
+        # Batches: delete non-Excel batches, re-insert from Java; preserve Excel batch records
+        if excel_batches:
+            db.query(SyncedBatch).filter(
+                SyncedBatch.batch_name.notin_(excel_batches)
+            ).delete(synchronize_session="fetch")
+        else:
+            db.query(SyncedBatch).delete()
         for b in batches_raw:
-            db.add(SyncedBatch(
-                batch_name=b["batchName"],
-                subjects_json=json.dumps(b.get("subjects") or []),
-                trainee_count=b.get("traineeCount") or 0,
-                synced_at=now,
-            ))
+            if b["batchName"] not in excel_batches:
+                db.add(SyncedBatch(
+                    batch_name=b["batchName"],
+                    subjects_json=json.dumps(b.get("subjects") or []),
+                    trainee_count=b.get("traineeCount") or 0,
+                    synced_at=now,
+                ))
 
-        db.query(SyncedDpiRecord).delete()
+        # DPI records: same pattern
+        if excel_batches:
+            db.query(SyncedDpiRecord).filter(
+                SyncedDpiRecord.batch_name.notin_(excel_batches)
+            ).delete(synchronize_session="fetch")
+        else:
+            db.query(SyncedDpiRecord).delete()
         for d in dpi_raw:
-            db.add(SyncedDpiRecord(
-                trainee_id=d["traineeId"],
-                batch_name=d["batchName"],
-                trainee_name=d["traineeName"],
-                dpi=d["dpi"],
-                location=d.get("location"),
-                synced_at=now,
-            ))
+            if d["batchName"] not in excel_batches:
+                db.add(SyncedDpiRecord(
+                    trainee_id=d["traineeId"],
+                    batch_name=d["batchName"],
+                    trainee_name=d["traineeName"],
+                    dpi=d["dpi"],
+                    location=d.get("location"),
+                    sub_batch=d.get("subBatch"),
+                    synced_at=now,
+                ))
 
-        db.query(SyncedSubjectScore).delete()
+        # Subject scores: same pattern
+        if excel_batches:
+            db.query(SyncedSubjectScore).filter(
+                SyncedSubjectScore.batch_name.notin_(excel_batches)
+            ).delete(synchronize_session="fetch")
+        else:
+            db.query(SyncedSubjectScore).delete()
         for s in scores_raw:
-            db.add(SyncedSubjectScore(
-                external_id=str(s["id"]),
-                batch_name=s["batchName"],
-                trainee_id=s["traineeId"],
-                trainee_name=s["traineeName"],
-                subject_name=s["subjectName"],
-                subject_id=s.get("subjectId"),
-                exam_name=s.get("examName"),
-                score=s["score"],
-                synced_at=now,
-            ))
+            if s["batchName"] not in excel_batches:
+                db.add(SyncedSubjectScore(
+                    external_id=str(s["id"]),
+                    batch_name=s["batchName"],
+                    trainee_id=s["traineeId"],
+                    trainee_name=s["traineeName"],
+                    subject_name=s["subjectName"],
+                    subject_id=s.get("subjectId"),
+                    exam_name=s.get("examName"),
+                    score=s["score"],
+                    synced_at=now,
+                ))
 
         total = len(batches_raw) + len(dpi_raw) + len(scores_raw)
         status_row = db.query(SyncStatus).filter(SyncStatus.source == "springboot").first()
@@ -78,7 +105,10 @@ async def run_sync() -> dict:
             ))
 
         db.commit()
-        logger.info("[sync] OK — batches=%d dpi=%d scores=%d", len(batches_raw), len(dpi_raw), len(scores_raw))
+        logger.info(
+            "[sync] OK — batches=%d dpi=%d scores=%d (excel_preserved=%d)",
+            len(batches_raw), len(dpi_raw), len(scores_raw), len(excel_batches),
+        )
         return {
             "batches_synced": len(batches_raw),
             "dpi_records_synced": len(dpi_raw),

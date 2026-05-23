@@ -9,4 +9,5 @@ public class DpiRequest {
     private String traineeName;
     private Double dpi;
     private String location;
+    private String subBatch;
 }

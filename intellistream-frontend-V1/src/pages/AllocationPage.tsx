@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, Brain, ChevronDown, ChevronRight, Info, Loader2,
-  Play, RefreshCw, Sliders, UserCheck, UserX, X,
+  AlertCircle, Brain, ChevronDown, ChevronRight, Download, Info, Loader2,
+  Lock, Play, RefreshCw, Sliders, Unlock, UserCheck, UserX, Users, X,
 } from 'lucide-react';
-import { allocationAiApi, allocationApi, streamsApi, syncApi } from '../services/api';
-import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, TraineeAllocation } from '../types/allocation';
+import { allocationAiApi, allocationApi, smeRequestsApi, streamsApi, syncApi } from '../services/api';
+import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, SMEAssociateRequest, SMERequestStatus, TraineeAllocation } from '../types/allocation';
 import type { BatchStream } from '../types/streams';
 import type { SyncedBatch } from '../types/sync';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,6 +30,305 @@ function scoreBg(score: number | null) {
 
 function fmt(v: number | null, decimals = 1) {
   return v === null ? '—' : v.toFixed(decimals);
+}
+
+// ── SME request helpers ───────────────────────────────────────────────────────
+
+function statusBadgeClass(s: SMERequestStatus) {
+  switch (s) {
+    case 'pending':           return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+    case 'approved':          return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+    case 'partially_approved':return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+    case 'rejected':          return 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400';
+    case 'cancelled':         return 'bg-tcs-gray-100 dark:bg-tcs-gray-700 text-tcs-gray-500 dark:text-tcs-gray-400';
+  }
+}
+
+function statusLabel(s: SMERequestStatus) {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── SME Request Modal (create) ────────────────────────────────────────────────
+
+function SMERequestModal({
+  isOpen, onClose, smeStreams, allocations, onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  smeStreams: BatchStream[];
+  allocations: TraineeAllocation[];
+  onSubmit: (streamId: number, employeeIds: string[]) => Promise<void>;
+}) {
+  const [streamId, setStreamId] = useState<number | ''>('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setStreamId(smeStreams.length === 1 ? smeStreams[0].id : '');
+      setSelected(new Set());
+      setSearch('');
+      setError('');
+    }
+  }, [isOpen, smeStreams]);
+
+  const filtered = allocations.filter((a) => {
+    const q = search.toLowerCase();
+    return a.trainee_name.toLowerCase().includes(q) || a.employee_id.toLowerCase().includes(q);
+  });
+
+  const toggle = (eid: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(eid)) {
+        next.delete(eid);
+      } else {
+        if (next.size >= 5) return prev;
+        next.add(eid);
+      }
+      return next;
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!streamId) { setError('Select a stream'); return; }
+    if (selected.size === 0) { setError('Select at least one associate'); return; }
+    setError('');
+    setLoading(true);
+    try {
+      await onSubmit(Number(streamId), [...selected]);
+      onClose();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to submit request');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Request Associates" width="w-full max-w-lg">
+      <div className="space-y-4">
+        {smeStreams.length === 0 ? (
+          <p className="text-sm text-tcs-gray-500 dark:text-tcs-gray-400">
+            You are not assigned to any stream in this batch.
+          </p>
+        ) : (
+          <>
+            {smeStreams.length > 1 ? (
+              <div>
+                <label className="block text-sm font-medium text-tcs-gray-700 dark:text-tcs-gray-300 mb-1">Stream</label>
+                <select
+                  value={streamId}
+                  onChange={(e) => setStreamId(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                    bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                    px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue"
+                >
+                  <option value="">Select stream…</option>
+                  {smeStreams.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <p className="text-sm text-tcs-gray-600 dark:text-tcs-gray-400">
+                Stream: <span className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{smeStreams[0].name}</span>
+              </p>
+            )}
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-tcs-gray-700 dark:text-tcs-gray-300">Select Associates</label>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selected.size >= 5 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : 'bg-tcs-gray-100 dark:bg-tcs-gray-700 text-tcs-gray-500 dark:text-tcs-gray-400'}`}>
+                  {selected.size} / 5
+                </span>
+              </div>
+              <input
+                type="text"
+                placeholder="Search trainee…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                  bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                  px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-tcs-blue"
+              />
+              <div className="max-h-52 overflow-y-auto border border-tcs-gray-200 dark:border-tcs-gray-700 rounded-lg divide-y divide-tcs-gray-100 dark:divide-tcs-gray-700">
+                {filtered.length === 0 ? (
+                  <p className="text-sm text-tcs-gray-400 p-3 text-center">No trainees found</p>
+                ) : filtered.map((a) => {
+                  const isSelected = selected.has(a.employee_id);
+                  const isDisabled = !isSelected && selected.size >= 5;
+                  return (
+                    <label
+                      key={a.employee_id}
+                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors
+                        ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700/30'}
+                        ${isSelected ? 'bg-blue-50 dark:bg-tcs-blue/10' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggle(a.employee_id)}
+                        disabled={isDisabled}
+                        className="accent-tcs-blue"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-tcs-gray-900 dark:text-tcs-gray-100 truncate">{a.trainee_name}</p>
+                        <p className="text-xs text-tcs-gray-400">{a.employee_id} · {a.effective_stream_name ?? 'Unallocated'}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              {selected.size >= 5 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Maximum of 5 associates per request reached.</p>
+              )}
+            </div>
+
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+            <div className="flex justify-end gap-3 pt-1">
+              <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+              <Button onClick={handleSubmit} loading={loading}>Submit Request</Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Review Request Modal (manager/admin) ──────────────────────────────────────
+
+function ReviewRequestModal({
+  isOpen, onClose, request, allocations, onReview,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  request: SMEAssociateRequest | null;
+  allocations: TraineeAllocation[];
+  onReview: (requestId: number, approvedIds: string[], notes: string) => Promise<void>;
+}) {
+  const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && request) {
+      setApproved(new Set(request.requested_employee_ids));
+      setNotes('');
+      setError('');
+    }
+  }, [isOpen, request]);
+
+  const allocMap = Object.fromEntries(allocations.map((a) => [a.employee_id, a]));
+
+  const toggle = (eid: string) => {
+    setApproved((prev) => {
+      const next = new Set(prev);
+      next.has(eid) ? next.delete(eid) : next.add(eid);
+      return next;
+    });
+  };
+
+  const handleReview = async () => {
+    if (!request) return;
+    setError('');
+    setLoading(true);
+    try {
+      await onReview(request.id, [...approved], notes.trim());
+      onClose();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to submit review');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const total = request?.requested_employee_ids.length ?? 0;
+  const approvedCount = approved.size;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Review Associate Request" width="w-full max-w-lg">
+      <div className="space-y-4">
+        {request && (
+          <>
+            <div className="text-sm text-tcs-gray-600 dark:text-tcs-gray-400 space-y-0.5 bg-tcs-gray-50 dark:bg-tcs-gray-900/40 rounded-lg px-4 py-3">
+              <p>SME: <span className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{request.sme_email}</span></p>
+              <p>Stream: <span className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{request.stream_name}</span></p>
+              <p>Submitted: <span className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{new Date(request.created_at).toLocaleString()}</span></p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-tcs-gray-700 dark:text-tcs-gray-300">Requested Associates</label>
+                <div className="flex gap-3">
+                  <button onClick={() => setApproved(new Set(request.requested_employee_ids))}
+                    className="text-xs text-tcs-blue hover:underline">All</button>
+                  <button onClick={() => setApproved(new Set())}
+                    className="text-xs text-red-500 hover:underline">None</button>
+                </div>
+              </div>
+              <div className="border border-tcs-gray-200 dark:border-tcs-gray-700 rounded-lg divide-y divide-tcs-gray-100 dark:divide-tcs-gray-700">
+                {request.requested_employee_ids.map((eid) => {
+                  const alloc = allocMap[eid];
+                  const isApproved = approved.has(eid);
+                  return (
+                    <label key={eid}
+                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors
+                        ${isApproved ? 'bg-green-50 dark:bg-green-900/10' : 'bg-red-50/50 dark:bg-red-900/10'}
+                        hover:brightness-95`}
+                    >
+                      <input type="checkbox" checked={isApproved} onChange={() => toggle(eid)} className="accent-tcs-blue" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-tcs-gray-900 dark:text-tcs-gray-100">
+                          {alloc?.trainee_name ?? eid}
+                        </p>
+                        <p className="text-xs text-tcs-gray-400">{eid} · {alloc?.effective_stream_name ?? '—'}</p>
+                      </div>
+                      <span className={`text-xs font-medium ${isApproved ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                        {isApproved ? 'Approve' : 'Reject'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-tcs-gray-400 mt-1">
+                {approvedCount} of {total} associate{total !== 1 ? 's' : ''} will be approved
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-tcs-gray-700 dark:text-tcs-gray-300 mb-1">
+                Review Notes <span className="font-normal text-tcs-gray-400">(optional)</span>
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any notes for the SME…"
+                rows={2}
+                className="w-full rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                  bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                  px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue resize-none"
+              />
+            </div>
+          </>
+        )}
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button onClick={handleReview} loading={loading}>
+            {approvedCount === 0 ? 'Reject Request' : approvedCount === total ? 'Approve All' : `Approve ${approvedCount}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 // ── Override modal ────────────────────────────────────────────────────────────
@@ -233,6 +532,7 @@ function BreakdownRow({
 export default function AllocationPage() {
   const { user } = useAuth();
   const canManage = user?.role === 'admin' || user?.role === 'manager';
+  const isSME = user?.role === 'sme';
 
   const [batches, setBatches] = useState<SyncedBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState('');
@@ -242,10 +542,19 @@ export default function AllocationPage() {
   const [lastRunResult, setLastRunResult] = useState<AllocationRunResult | null>(null);
   const [aiRecommendations, setAiRecommendations] = useState<Map<string, AllocationAIRecommendation>>(new Map());
 
+  // SME request state
+  const [smeRequests, setSmeRequests] = useState<SMEAssociateRequest[]>([]);
+  const [myStreamIds, setMyStreamIds] = useState<number[]>([]);
+  const [showSmeModal, setShowSmeModal] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<SMEAssociateRequest | null>(null);
+
   // UI state
   const [loadingRun, setLoadingRun] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [loadingFreeze, setLoadingFreeze] = useState(false);
+  const [loadingFreezeId, setLoadingFreezeId] = useState<string | null>(null);
+  const [loadingExport, setLoadingExport] = useState(false);
   const [error, setError] = useState('');
   const [aiError, setAiError] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -268,18 +577,24 @@ export default function AllocationPage() {
     setAllocations([]);
     setLastRunResult(null);
     setAiRecommendations(new Map());
+    setSmeRequests([]);
+    setMyStreamIds([]);
     try {
-      const [cfgRes, allocRes, streamsRes, aiRes] = await Promise.all([
+      const [cfgRes, allocRes, streamsRes, aiRes, smeReqRes, myStreamsRes] = await Promise.all([
         allocationApi.getConfig(batchName),
         allocationApi.list(batchName),
         streamsApi.list(batchName),
         allocationAiApi.list(batchName).catch(() => ({ data: [] as AllocationAIRecommendation[] })),
+        smeRequestsApi.list(batchName).catch(() => ({ data: [] as SMEAssociateRequest[] })),
+        streamsApi.myBatchSmeAssignments(batchName).catch(() => ({ data: [] as number[] })),
       ]);
       setConfig(cfgRes.data);
       setEditScore(Math.round(cfgRes.data.score_weight * 100));
       setAllocations(allocRes.data);
       setStreams(streamsRes.data);
       setAiRecommendations(new Map(aiRes.data.map((r) => [r.employee_id, r])));
+      setSmeRequests(smeReqRes.data);
+      setMyStreamIds(myStreamsRes.data);
     } catch (e: unknown) {
       setError('Failed to load allocation data');
     } finally {
@@ -351,6 +666,100 @@ export default function AllocationPage() {
     setAllocations((prev) => prev.map((a) => (a.employee_id === alloc.employee_id ? res.data : a)));
   };
 
+  const handleFreezeBatch = async () => {
+    if (!selectedBatch) return;
+    setLoadingFreeze(true);
+    setError('');
+    try {
+      const res = await allocationApi.freezeBatch(selectedBatch);
+      setConfig(res.data);
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to freeze batch');
+    } finally {
+      setLoadingFreeze(false);
+    }
+  };
+
+  const handleUnfreezeBatch = async () => {
+    if (!selectedBatch) return;
+    setLoadingFreeze(true);
+    setError('');
+    try {
+      const res = await allocationApi.unfreezeBatch(selectedBatch);
+      setConfig(res.data);
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to unfreeze batch');
+    } finally {
+      setLoadingFreeze(false);
+    }
+  };
+
+  const handleFreezeTrainee = async (alloc: TraineeAllocation) => {
+    if (!selectedBatch) return;
+    setLoadingFreezeId(alloc.employee_id);
+    try {
+      const res = await allocationApi.freezeTrainee(selectedBatch, alloc.employee_id);
+      setAllocations((prev) => prev.map((a) => (a.employee_id === alloc.employee_id ? res.data : a)));
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to freeze trainee');
+    } finally {
+      setLoadingFreezeId(null);
+    }
+  };
+
+  const handleUnfreezeTrainee = async (alloc: TraineeAllocation) => {
+    if (!selectedBatch) return;
+    setLoadingFreezeId(alloc.employee_id);
+    try {
+      const res = await allocationApi.unfreezeTrainee(selectedBatch, alloc.employee_id);
+      setAllocations((prev) => prev.map((a) => (a.employee_id === alloc.employee_id ? res.data : a)));
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to unfreeze trainee');
+    } finally {
+      setLoadingFreezeId(null);
+    }
+  };
+
+  const handleCreateSmeRequest = async (streamId: number, employeeIds: string[]) => {
+    if (!selectedBatch) return;
+    const res = await smeRequestsApi.create(selectedBatch, { stream_id: streamId, requested_employee_ids: employeeIds });
+    setSmeRequests((prev) => [res.data, ...prev]);
+  };
+
+  const handleReviewRequest = async (requestId: number, approvedIds: string[], notes: string) => {
+    if (!selectedBatch) return;
+    const res = await smeRequestsApi.review(selectedBatch, requestId, { approved_employee_ids: approvedIds, review_notes: notes || undefined });
+    setSmeRequests((prev) => prev.map((r) => (r.id === requestId ? res.data : r)));
+  };
+
+  const handleCancelSmeRequest = async (requestId: number) => {
+    if (!selectedBatch) return;
+    await smeRequestsApi.cancel(selectedBatch, requestId);
+    setSmeRequests((prev) => prev.map((r) => r.id === requestId ? { ...r, status: 'cancelled' as const } : r));
+  };
+
+  const handleExport = async () => {
+    if (!selectedBatch) return;
+    setLoadingExport(true);
+    try {
+      const res = await allocationApi.exportExcel(selectedBatch);
+      const url = URL.createObjectURL(new Blob([res.data as BlobPart]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `allocation_${selectedBatch.replace(/\s+/g, '_')}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to export Excel');
+    } finally {
+      setLoadingExport(false);
+    }
+  };
+
   const toggleRow = (id: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -368,7 +777,7 @@ export default function AllocationPage() {
     );
   });
 
-  const dpiWeight = config ? Math.round(config.dpi_weight * 100) : 40;
+  const isBatchFrozen = config?.is_frozen ?? false;
 
   return (
     <div className="p-6 space-y-6">
@@ -501,9 +910,20 @@ export default function AllocationPage() {
                 <p className="text-tcs-gray-400">Greedy fill by stream priority · manual overrides preserved on re-run</p>
               </div>
 
+              {/* Freeze status banner */}
+              {isBatchFrozen && (
+                <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
+                  <Lock size={12} />
+                  <span>
+                    Frozen by <span className="font-medium">{config?.frozen_by_email}</span>
+                    {config?.frozen_at && <> on {new Date(config.frozen_at).toLocaleString()}</>}
+                  </span>
+                </div>
+              )}
+
               {canManage && (
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleRun} loading={loadingRun} disabled={!selectedBatch}>
+                  <Button onClick={handleRun} loading={loadingRun} disabled={!selectedBatch || isBatchFrozen}>
                     <Play size={14} />
                     {config?.last_run_at ? 'Re-run Allocation' : 'Run Allocation'}
                   </Button>
@@ -517,6 +937,23 @@ export default function AllocationPage() {
                     <Brain size={14} />
                     {aiRecommendations.size > 0 ? 'Refresh AI Recs' : 'Generate AI Recs'}
                   </Button>
+                  {isBatchFrozen ? (
+                    <Button variant="secondary" onClick={handleUnfreezeBatch} loading={loadingFreeze}>
+                      <Unlock size={14} />
+                      Unfreeze Batch
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={handleFreezeBatch}
+                      loading={loadingFreeze}
+                      disabled={allocations.length === 0}
+                      title={allocations.length === 0 ? 'Run allocation first' : 'Lock all allocations for this batch'}
+                    >
+                      <Lock size={14} />
+                      Freeze Batch
+                    </Button>
+                  )}
                 </div>
               )}
               {aiError && (
@@ -535,6 +972,88 @@ export default function AllocationPage() {
               )}
             </div>
           </div>
+
+          {/* SME Associate Requests section */}
+          {(isSME || canManage) && (
+            <div className="rounded-xl border border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-white dark:bg-tcs-gray-800 overflow-hidden">
+              <div className="px-5 py-4 border-b border-tcs-gray-200 dark:border-tcs-gray-700 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <Users size={16} className="text-tcs-blue" />
+                  <h2 className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">
+                    {isSME ? 'My Associate Requests' : 'SME Associate Requests'}
+                    {smeRequests.filter((r) => r.status === 'pending').length > 0 && (
+                      <span className="ml-2 text-xs font-normal bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-2 py-0.5 rounded-full">
+                        {smeRequests.filter((r) => r.status === 'pending').length} pending
+                      </span>
+                    )}
+                  </h2>
+                </div>
+                {isSME && (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowSmeModal(true)}
+                    disabled={allocations.length === 0}
+                    title={allocations.length === 0 ? 'Run allocation first' : 'Request up to 5 associates from this batch'}
+                  >
+                    <Users size={13} />
+                    New Request
+                  </Button>
+                )}
+              </div>
+
+              {smeRequests.length === 0 ? (
+                <div className="flex items-center justify-center py-8 text-tcs-gray-400 text-sm">
+                  No associate requests for this batch
+                </div>
+              ) : (
+                <div className="divide-y divide-tcs-gray-100 dark:divide-tcs-gray-700/50">
+                  {smeRequests.map((req) => (
+                    <div key={req.id} className="px-5 py-3 flex items-start gap-4">
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {canManage && (
+                            <span className="text-sm font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{req.sme_email}</span>
+                          )}
+                          <span className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+                            {req.stream_name ?? `Stream #${req.stream_id}`}
+                          </span>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadgeClass(req.status)}`}>
+                            {statusLabel(req.status)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400">
+                          {req.requested_employee_ids.length} requested
+                          {req.approved_employee_ids != null && (
+                            <> · <span className="font-medium text-tcs-gray-700 dark:text-tcs-gray-300">{req.approved_employee_ids.length} approved</span></>
+                          )}
+                          {req.review_notes && (
+                            <> · <span className="italic">"{req.review_notes}"</span></>
+                          )}
+                        </p>
+                        <p className="text-xs text-tcs-gray-400">{new Date(req.created_at).toLocaleString()}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {canManage && req.status === 'pending' && (
+                          <Button size="sm" variant="secondary" onClick={() => setReviewTarget(req)}>
+                            Review
+                          </Button>
+                        )}
+                        {isSME && req.status === 'pending' && (
+                          <button
+                            onClick={() => handleCancelSmeRequest(req.id)}
+                            className="p-1.5 rounded text-tcs-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="Cancel request"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
@@ -569,6 +1088,18 @@ export default function AllocationPage() {
                     bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
                     px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue w-52"
                 />
+                {allocations.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleExport}
+                    loading={loadingExport}
+                    title="Download allocation as Excel"
+                  >
+                    <Download size={14} />
+                    Export
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -604,6 +1135,7 @@ export default function AllocationPage() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">AI Rec.</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Manual Override</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Effective Stream</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Frozen</th>
                       {canManage && <th className="px-4 py-3 text-right text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Actions</th>}
                     </tr>
                   </thead>
@@ -611,11 +1143,13 @@ export default function AllocationPage() {
                     {filtered.map((alloc) => {
                       const expanded = expandedRows.has(alloc.employee_id);
                       const isOverridden = alloc.manual_stream_id !== null;
+                      const isFrozen = alloc.is_frozen || isBatchFrozen;
+                      const freezingThis = loadingFreezeId === alloc.employee_id;
 
                       return [
                         <tr
                           key={alloc.employee_id}
-                          className="hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700/30 transition-colors"
+                          className={`hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700/30 transition-colors ${isFrozen ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''}`}
                         >
                           {/* Expand toggle */}
                           <td className="px-3 py-3">
@@ -629,7 +1163,14 @@ export default function AllocationPage() {
 
                           {/* Trainee */}
                           <td className="px-4 py-3">
-                            <p className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{alloc.trainee_name}</p>
+                            <div className="flex items-center gap-1.5">
+                              {alloc.is_frozen && (
+                                <span title={`Frozen by ${alloc.frozen_by_email}`}>
+                                  <Lock size={11} className="text-amber-500 shrink-0" />
+                                </span>
+                              )}
+                              <p className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{alloc.trainee_name}</p>
+                            </div>
                             <p className="text-xs text-tcs-gray-400">{alloc.employee_id}</p>
                           </td>
 
@@ -727,27 +1268,63 @@ export default function AllocationPage() {
                             )}
                           </td>
 
+                          {/* Frozen status cell */}
+                          <td className="px-4 py-3 text-center">
+                            {alloc.is_frozen ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
+                                <Lock size={10} />
+                                Frozen
+                              </span>
+                            ) : isBatchFrozen ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full">
+                                <Lock size={10} />
+                                Batch
+                              </span>
+                            ) : (
+                              <span className="text-tcs-gray-300 dark:text-tcs-gray-600 text-xs">—</span>
+                            )}
+                          </td>
+
                           {/* Actions */}
                           {canManage && (
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1.5">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setOverrideTarget(alloc)}
-                                  className="text-xs"
-                                >
-                                  {isOverridden ? 'Edit' : 'Override'}
-                                </Button>
-                                {isOverridden && (
-                                  <button
-                                    onClick={() => handleClearOverride(alloc)}
-                                    className="p-1.5 rounded text-tcs-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                    title="Clear override"
-                                  >
-                                    <X size={13} />
-                                  </button>
+                                {!isBatchFrozen && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setOverrideTarget(alloc)}
+                                      className="text-xs"
+                                      disabled={alloc.is_frozen}
+                                    >
+                                      {isOverridden ? 'Edit' : 'Override'}
+                                    </Button>
+                                    {isOverridden && !alloc.is_frozen && (
+                                      <button
+                                        onClick={() => handleClearOverride(alloc)}
+                                        className="p-1.5 rounded text-tcs-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                        title="Clear override"
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    )}
+                                  </>
                                 )}
+                                <button
+                                  onClick={() => alloc.is_frozen ? handleUnfreezeTrainee(alloc) : handleFreezeTrainee(alloc)}
+                                  disabled={freezingThis || isBatchFrozen}
+                                  className="p-1.5 rounded transition-colors disabled:opacity-40 text-tcs-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                                  title={alloc.is_frozen ? 'Unfreeze this trainee' : 'Freeze this trainee'}
+                                >
+                                  {freezingThis ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : alloc.is_frozen ? (
+                                    <Unlock size={13} />
+                                  ) : (
+                                    <Lock size={13} />
+                                  )}
+                                </button>
                               </div>
                             </td>
                           )}
@@ -789,6 +1366,22 @@ export default function AllocationPage() {
         trainee={overrideTarget}
         streams={streams}
         onSave={handleOverrideSave}
+      />
+
+      <SMERequestModal
+        isOpen={showSmeModal}
+        onClose={() => setShowSmeModal(false)}
+        smeStreams={streams.filter((s) => myStreamIds.includes(s.id))}
+        allocations={allocations}
+        onSubmit={handleCreateSmeRequest}
+      />
+
+      <ReviewRequestModal
+        isOpen={reviewTarget !== null}
+        onClose={() => setReviewTarget(null)}
+        request={reviewTarget}
+        allocations={allocations}
+        onReview={handleReviewRequest}
       />
     </div>
   );

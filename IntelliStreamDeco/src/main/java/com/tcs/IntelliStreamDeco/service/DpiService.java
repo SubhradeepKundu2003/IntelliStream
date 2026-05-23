@@ -21,7 +21,8 @@ public class DpiService {
                 request.getBatchName(),
                 request.getTraineeName(),
                 request.getDpi(),
-                request.getLocation()
+                request.getLocation(),
+                request.getSubBatch()
         );
         return repository.save(record);
     }

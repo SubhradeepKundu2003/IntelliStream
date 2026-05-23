@@ -21,6 +21,8 @@ from batch_management.routes import router as batch_mgmt_router
 from business_requirements.routes import router as br_router
 from ai_suggestions.routes import router as ai_suggestions_router
 from allocation.routes import router as allocation_router
+from scores_upload.routes import router as scores_upload_router
+import scores_upload.models  # noqa: F401 — ensures table is registered with Base
 
 
 def _run_migrations() -> None:
@@ -42,6 +44,45 @@ def _run_migrations() -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE business_requirements ADD COLUMN location VARCHAR"))
             print("[migration] Added 'location' column to business_requirements")
+
+    if "synced_dpi_records" in inspector.get_table_names():
+        dpi_cols = {c["name"] for c in inspector.get_columns("synced_dpi_records")}
+        if "sub_batch" not in dpi_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE synced_dpi_records ADD COLUMN sub_batch VARCHAR"))
+            print("[migration] Added 'sub_batch' column to synced_dpi_records")
+
+    if "allocation_configs" in inspector.get_table_names():
+        ac_cols = {c["name"] for c in inspector.get_columns("allocation_configs")}
+        if "is_frozen" not in ac_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE allocation_configs ADD COLUMN is_frozen BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE allocation_configs ADD COLUMN frozen_at TIMESTAMP WITH TIME ZONE"))
+                conn.execute(text("ALTER TABLE allocation_configs ADD COLUMN frozen_by_email VARCHAR"))
+            print("[migration] Added freeze columns to allocation_configs")
+
+    if "trainee_allocations" in inspector.get_table_names():
+        ta_cols = {c["name"] for c in inspector.get_columns("trainee_allocations")}
+        if "is_frozen" not in ta_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE trainee_allocations ADD COLUMN is_frozen BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE trainee_allocations ADD COLUMN frozen_at TIMESTAMP WITH TIME ZONE"))
+                conn.execute(text("ALTER TABLE trainee_allocations ADD COLUMN frozen_by_email VARCHAR"))
+            print("[migration] Added freeze columns to trainee_allocations")
+
+    # excel_batch_registry is created automatically by SQLAlchemy via Base.metadata.create_all
+    # sme_associate_requests is created automatically by SQLAlchemy via Base.metadata.create_all
+
+    # Add new notification enum values for PostgreSQL (SQLite stores as VARCHAR, no action needed)
+    try:
+        with engine.begin() as conn:
+            for val in ("sme_request_submitted", "sme_request_reviewed"):
+                try:
+                    conn.execute(text(f"ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS '{val}'"))
+                except Exception:
+                    pass  # Not PostgreSQL or value already exists
+    except Exception:
+        pass
 
 
 def _seed_admin(db: Session) -> None:
@@ -107,6 +148,7 @@ app.include_router(batch_mgmt_router)
 app.include_router(br_router)
 app.include_router(ai_suggestions_router)
 app.include_router(allocation_router)
+app.include_router(scores_upload_router)
 
 
 @app.get("/health")

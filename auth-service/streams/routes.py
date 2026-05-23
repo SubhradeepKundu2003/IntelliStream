@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from auth.dependencies import get_current_user, require_manager_or_above, require_sme_or_above
+from auth.dependencies import get_current_user, require_manager_or_above
 from database import get_db
 from models import Role, User
 from notifications.models import NotificationType
@@ -249,7 +249,7 @@ def set_weights(
     stream_id: int,
     body: WeightsSet,
     db: Session = Depends(get_db),
-    user: User = Depends(require_sme_or_above),
+    user: User = Depends(require_manager_or_above),
 ):
     batch_subjects = _get_batch_subjects(batch_name, db)
     stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
@@ -262,42 +262,12 @@ def set_weights(
             detail="A weight change proposal is already pending approval for this stream. No changes allowed until it is reviewed.",
         )
 
-    if user.role == Role.sme:
-        assigned = (
-            db.query(BatchStreamSME)
-            .filter(BatchStreamSME.stream_id == stream_id, BatchStreamSME.user_id == user.id, BatchStreamSME.is_active == True)
-            .first()
-        )
-        if not assigned:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned as SME for this stream.",
-            )
-
     _validate_weights_against_batch(batch_name, body, batch_subjects)
 
-    if user.role == Role.sme:
-        weights_json = json.dumps([{"subject_name": w.subject_name, "weight_pct": w.weight_pct} for w in body.weights])
-        proposal = StreamWeightProposal(
-            stream_id=stream_id,
-            proposed_by_email=user.email,
-            status=ProposalStatus.pending,
-            proposed_weights_json=weights_json,
-        )
-        db.add(proposal)
-        managers = db.query(User).filter(User.role.in_([Role.manager, Role.admin]), User.is_active == True).all()
-        for mgr in managers:
-            create_notification(
-                db, mgr.email, NotificationType.proposal_submitted,
-                "Weight Proposal Pending Review",
-                f"{user.email} submitted a weight proposal for stream '{stream.name}' in batch '{batch_name}'.",
-            )
-        db.commit()
-    else:
-        db.query(StreamSubjectWeight).filter(StreamSubjectWeight.stream_id == stream_id).delete()
-        for w in body.weights:
-            db.add(StreamSubjectWeight(stream_id=stream_id, subject_name=w.subject_name, weight_pct=w.weight_pct))
-        db.commit()
+    db.query(StreamSubjectWeight).filter(StreamSubjectWeight.stream_id == stream_id).delete()
+    for w in body.weights:
+        db.add(StreamSubjectWeight(stream_id=stream_id, subject_name=w.subject_name, weight_pct=w.weight_pct))
+    db.commit()
 
     return _stream_response(stream, db)
 

@@ -80,6 +80,10 @@ def get_sync_status(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 
 @router.post("/trigger", response_model=SyncTriggerResponse)
-async def trigger_sync(_=Depends(require_manager_or_above)):
-    result = await run_sync()
-    return SyncTriggerResponse(message="Sync completed successfully", **result)
+async def trigger_sync(
+    preserve_excel: bool = False,
+    _=Depends(require_manager_or_above),
+):
+    result = await run_sync(preserve_excel=preserve_excel)
+    msg = "Sync completed — Excel batches preserved" if preserve_excel else "Sync completed successfully"
+    return SyncTriggerResponse(message=msg, **result)

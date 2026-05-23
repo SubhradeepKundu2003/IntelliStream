@@ -4,7 +4,7 @@ import type { Notification } from '../types/notifications';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus, SyncTriggerResponse } from '../types/sync';
 import type { BatchStream, SMEAssignment, StreamCreate, StreamSuggestion, StreamTemplate, StreamTemplateDetail, SubjectWeight, WeightProposal, WeightsSet } from '../types/streams';
 import type { SpringBootBatch } from '../types/batch_management';
-import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, TraineeAllocation } from '../types/allocation';
+import type { AllocationAIRecommendation, AllocationConfig, AllocationRunResult, SMEAssociateRequest, TraineeAllocation } from '../types/allocation';
 import type {
   BRCreate,
   BRResponse,
@@ -12,6 +12,7 @@ import type {
   BRUpdate,
   ExcelImportResult,
 } from '../types/business_requirements';
+import type { ScoresUploadResult, StreamReference } from '../types/scores_upload';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
 
@@ -215,6 +216,16 @@ export const allocationApi = {
                 api.patch<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/override`, body),
   clearOverride: (batchName: string, employeeId: string) =>
                 api.delete<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/override`),
+  freezeBatch:   (batchName: string) =>
+                api.post<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/freeze`),
+  unfreezeBatch: (batchName: string) =>
+                api.post<AllocationConfig>(`/allocation/${encodeURIComponent(batchName)}/unfreeze`),
+  freezeTrainee:   (batchName: string, employeeId: string) =>
+                api.post<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/freeze`),
+  unfreezeTrainee: (batchName: string, employeeId: string) =>
+                api.post<TraineeAllocation>(`/allocation/${encodeURIComponent(batchName)}/${encodeURIComponent(employeeId)}/unfreeze`),
+  exportExcel: (batchName: string) =>
+                api.get(`/allocation/${encodeURIComponent(batchName)}/export`, { responseType: 'blob' }),
 };
 
 export const allocationAiApi = {
@@ -228,11 +239,44 @@ export const allocationAiApi = {
     api.get<AllocationAIRecommendation[]>(`/allocation/${encodeURIComponent(batchName)}/ai-recommendations`),
 };
 
+export const smeRequestsApi = {
+  create: (batchName: string, body: { stream_id: number; requested_employee_ids: string[] }) =>
+    api.post<SMEAssociateRequest>(`/allocation/${encodeURIComponent(batchName)}/sme-requests`, body),
+  list: (batchName: string) =>
+    api.get<SMEAssociateRequest[]>(`/allocation/${encodeURIComponent(batchName)}/sme-requests`),
+  review: (batchName: string, requestId: number, body: { approved_employee_ids: string[]; review_notes?: string }) =>
+    api.post<SMEAssociateRequest>(`/allocation/${encodeURIComponent(batchName)}/sme-requests/${requestId}/review`, body),
+  cancel: (batchName: string, requestId: number) =>
+    api.delete(`/allocation/${encodeURIComponent(batchName)}/sme-requests/${requestId}`),
+};
+
+export const scoresUploadApi = {
+  uploadExcel: (batchName: string, file: File) => {
+    const form = new FormData();
+    form.append('batch_name', batchName);
+    form.append('file', file);
+    return api.post<ScoresUploadResult>('/scores/upload-excel', form);
+  },
+  downloadTemplate: () =>
+    api.get<Blob>('/scores/excel-template', { responseType: 'blob' }),
+  streamReferences: (batchName?: string) =>
+    api.get<StreamReference[]>('/scores/stream-references', {
+      params: batchName ? { batch_name: batchName } : undefined,
+    }),
+  batchInfo: (batchName: string) =>
+    api.get<{ batch_name: string; dpi_count: number; has_existing: boolean; excel_managed: boolean; uploaded_at: string | null }>(`/scores/batch-info/${encodeURIComponent(batchName)}`),
+  excelBatches: () =>
+    api.get<{ batch_name: string; uploaded_at: string; trainee_count: number }[]>('/scores/excel-batches'),
+};
+
 export const syncApi = {
   batches:          () => api.get<SyncedBatch[]>('/sync/batches'),
   dpi:              (batchName?: string) =>
                       api.get<SyncedDpiRecord[]>('/sync/dpi', { params: batchName ? { batch_name: batchName } : undefined }),
   scores:           () => api.get<SyncedSubjectScore[]>('/sync/scores'),
   status:           () => api.get<SyncStatus>('/sync/status'),
-  trigger:          () => api.post<SyncTriggerResponse>('/sync/trigger'),
+  trigger:          (preserveExcel = false) =>
+                      api.post<SyncTriggerResponse>('/sync/trigger', null, {
+                        params: preserveExcel ? { preserve_excel: true } : undefined,
+                      }),
 };

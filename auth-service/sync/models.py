@@ -19,6 +19,7 @@ class SyncedDpiRecord(Base):
     trainee_name = Column(String, nullable=False)
     dpi = Column(Float, nullable=False)
     location = Column(String, nullable=True)
+    sub_batch = Column(String, nullable=True)
     synced_at = Column(String, nullable=False)
 
 

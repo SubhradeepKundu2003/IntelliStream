@@ -16,7 +16,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',        to: '/home',                  icon: <LayoutDashboard size={18} />, roles: ['admin', 'manager', 'sme'] },
   { label: 'Stream Management', to: '/streams',             icon: <GitBranch size={18} />,       roles: ['admin', 'manager', 'sme'] },
-  { label: 'Trainee Allocation', to: '/allocation',         icon: <UserCheck size={18} />,       roles: ['admin', 'manager'] },
+  { label: 'Trainee Allocation', to: '/allocation',         icon: <UserCheck size={18} />,       roles: ['admin', 'manager', 'sme'] },
   { label: 'User Management',  to: '/admin/users',          icon: <Users size={18} />,           roles: ['admin'] },
   { label: 'Stream Templates', to: '/admin/stream-templates',      icon: <Layers size={18} />,        roles: ['admin', 'manager', 'sme'] },
   { label: 'Batch Management',   to: '/admin/trainees',           icon: <GraduationCap size={18} />, roles: ['admin', 'manager'] },

@@ -30,4 +30,7 @@ public class DpiRecord {
 
     @Column(nullable = true)
     private String location;
+
+    @Column(name = "sub_batch", nullable = true)
+    private String subBatch;
 }

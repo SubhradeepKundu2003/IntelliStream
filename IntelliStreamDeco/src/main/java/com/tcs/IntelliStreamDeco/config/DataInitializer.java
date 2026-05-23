@@ -54,13 +54,13 @@ public class DataInitializer implements CommandLineRunner {
         };
 
         for (Object[] t : trainees) {
-            dpiRecordRepository.save(new DpiRecord(
-                (String) t[0],
-                (String) t[2],
-                (String) t[1],
-                (Double) t[3],
-                (String) t[4]
-            ));
+            DpiRecord dpi = new DpiRecord();
+            dpi.setTraineeId((String) t[0]);
+            dpi.setBatchName((String) t[2]);
+            dpi.setTraineeName((String) t[1]);
+            dpi.setDpi((Double) t[3]);
+            dpi.setLocation((String) t[4]);
+            dpiRecordRepository.save(dpi);
         }
 
         // Scores: subject -> [exam1score1..10, exam2score1..10]

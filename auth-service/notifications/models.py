@@ -8,12 +8,14 @@ from database import Base
 
 
 class NotificationType(str, enum.Enum):
-    proposal_submitted = "proposal_submitted"
-    proposal_approved  = "proposal_approved"
-    proposal_rejected  = "proposal_rejected"
-    sme_assigned       = "sme_assigned"
-    sme_removed        = "sme_removed"
-    stream_deleted     = "stream_deleted"
+    proposal_submitted    = "proposal_submitted"
+    proposal_approved     = "proposal_approved"
+    proposal_rejected     = "proposal_rejected"
+    sme_assigned          = "sme_assigned"
+    sme_removed           = "sme_removed"
+    stream_deleted        = "stream_deleted"
+    sme_request_submitted = "sme_request_submitted"
+    sme_request_reviewed  = "sme_request_reviewed"
 
 
 class Notification(Base):

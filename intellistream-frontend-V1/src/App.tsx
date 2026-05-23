@@ -54,6 +54,10 @@ export default function App() {
                   <Route path="/admin/training-data" element={<SpringBootDataPage />} />
                   <Route path="/admin/business-requirements" element={<BusinessRequirementsPage />} />
                   <Route path="/admin/trainees" element={<TraineePage />} />
+                </Route>
+
+                {/* Allocation — accessible to SME too (read-only view + associate requests) */}
+                <Route element={<RoleRoute roles={['admin', 'manager', 'sme']} />}>
                   <Route path="/allocation" element={<AllocationPage />} />
                 </Route>
               </Route>
