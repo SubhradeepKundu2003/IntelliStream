@@ -13,6 +13,7 @@ import type {
   ExcelImportResult,
 } from '../types/business_requirements';
 import type { ScoresUploadResult, StreamReference } from '../types/scores_upload';
+import type { DashboardStats } from '../types/dashboard';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
 
@@ -267,6 +268,13 @@ export const scoresUploadApi = {
     api.get<{ batch_name: string; dpi_count: number; has_existing: boolean; excel_managed: boolean; uploaded_at: string | null }>(`/scores/batch-info/${encodeURIComponent(batchName)}`),
   excelBatches: () =>
     api.get<{ batch_name: string; uploaded_at: string; trainee_count: number }[]>('/scores/excel-batches'),
+};
+
+export const dashboardApi = {
+  stats: (batchName?: string) =>
+    api.get<DashboardStats>('/dashboard/stats', {
+      params: batchName ? { batch_name: batchName } : undefined,
+    }),
 };
 
 export const syncApi = {

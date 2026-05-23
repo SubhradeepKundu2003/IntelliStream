@@ -22,6 +22,7 @@ from business_requirements.routes import router as br_router
 from ai_suggestions.routes import router as ai_suggestions_router
 from allocation.routes import router as allocation_router
 from scores_upload.routes import router as scores_upload_router
+from dashboard.routes import router as dashboard_router
 import scores_upload.models  # noqa: F401 — ensures table is registered with Base
 
 
@@ -149,6 +150,7 @@ app.include_router(br_router)
 app.include_router(ai_suggestions_router)
 app.include_router(allocation_router)
 app.include_router(scores_upload_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")
