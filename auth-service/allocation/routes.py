@@ -327,14 +327,6 @@ def export_allocation(
     center = Alignment(horizontal="center", vertical="center")
     frozen_fill = PatternFill(fill_type="solid", fgColor="E2EFDA")
 
-    headers = [
-        "Employee ID", "Trainee Name", "Batch", "DPI Score",
-        "Subject Score", "Composite Score",
-        "Suggested Stream", "Manual Override Stream",
-        "Effective Stream", "Override Reason", "Overridden By",
-        "Frozen", "Frozen By",
-    ]
-
     # Collect all subject names for dynamic columns
     all_subjects: set[str] = set()
     for row in rows:
@@ -344,7 +336,11 @@ def export_allocation(
         except (ValueError, TypeError):
             pass
     sorted_subjects = sorted(all_subjects)
-    full_headers = headers + [f"Score: {s.title()}" for s in sorted_subjects]
+    full_headers = (
+        ["Employee ID", "Trainee Name", "DPI Score"]
+        + [s.title() for s in sorted_subjects]
+        + ["Effective Stream"]
+    )
 
     for col_idx, h in enumerate(full_headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -354,8 +350,6 @@ def export_allocation(
 
     for row_idx, alloc in enumerate(rows, start=2):
         effective_id = alloc.manual_stream_id if alloc.manual_stream_id is not None else alloc.suggested_stream_id
-        suggested_name = _stream_name(alloc.suggested_stream_id, db)
-        manual_name = _stream_name(alloc.manual_stream_id, db)
         effective_name = _stream_name(effective_id, db)
 
         breakdown: dict[str, float] = {}
@@ -364,23 +358,12 @@ def export_allocation(
         except (ValueError, TypeError):
             pass
 
-        base_data = [
-            alloc.employee_id,
-            alloc.trainee_name,
-            alloc.batch_name,
-            alloc.dpi_score,
-            round(alloc.subject_score, 2) if alloc.subject_score is not None else None,
-            round(alloc.composite_score, 2) if alloc.composite_score is not None else None,
-            suggested_name or "Unallocated",
-            manual_name or "—",
-            effective_name or "Unallocated",
-            alloc.manual_override_reason or "—",
-            alloc.overridden_by_email or "—",
-            "Yes" if alloc.is_frozen else "No",
-            alloc.frozen_by_email or "—",
-        ]
         subject_data = [round(breakdown.get(s, 0), 2) for s in sorted_subjects]
-        full_row = base_data + subject_data
+        full_row = (
+            [alloc.employee_id, alloc.trainee_name, alloc.dpi_score]
+            + subject_data
+            + [effective_name or "Unallocated"]
+        )
 
         for col_idx, val in enumerate(full_row, start=1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)

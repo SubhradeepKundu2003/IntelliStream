@@ -9,6 +9,7 @@ from database import get_db
 from models import Role, User
 from notifications.models import NotificationType
 from notifications.service import create_notification
+from allocation.models import AllocationConfig
 from sync.models import SyncedBatch
 from .models import BatchStream, BatchStreamSME, ProposalStatus, StreamSubjectWeight, StreamWeightProposal
 from .schemas import (
@@ -223,6 +224,13 @@ def set_trainee_pct(
     stream = db.query(BatchStream).filter(BatchStream.id == stream_id, BatchStream.batch_name == batch_name, BatchStream.is_active == True).first()
     if not stream:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+
+    alloc_config = db.query(AllocationConfig).filter(AllocationConfig.batch_name == batch_name).first()
+    if alloc_config and alloc_config.is_frozen:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Batch '{batch_name}' allocation is frozen. Unfreeze it in the Allocation page before changing stream capacities.",
+        )
 
     other_streams = (
         db.query(BatchStream)

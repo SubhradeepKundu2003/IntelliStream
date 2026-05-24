@@ -520,17 +520,19 @@ function BreakdownRow({
   alloc,
   streams,
   aiRec,
+  colSpan,
 }: {
   alloc: TraineeAllocation;
   streams: BatchStream[];
   aiRec?: AllocationAIRecommendation;
+  colSpan: number;
 }) {
   const streamMap = Object.fromEntries(streams.map((s) => [s.id, s.name]));
   const subjects = Object.entries(alloc.score_breakdown).sort((a, b) => b[1] - a[1]);
 
   return (
     <tr className="bg-tcs-gray-50 dark:bg-tcs-gray-900/50">
-      <td colSpan={11} className="px-6 py-4">
+      <td colSpan={colSpan} className="px-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Subject scores */}
           <div>
@@ -894,6 +896,7 @@ export default function AllocationPage() {
 
   const uniqueSuggestedStreams = [...new Set(allocations.map((a) => a.suggested_stream_name).filter(Boolean))] as string[];
   const uniqueEffectiveStreams = [...new Set(allocations.map((a) => a.effective_stream_name).filter(Boolean))] as string[];
+  const allSubjects = [...new Set(allocations.flatMap((a) => Object.keys(a.score_breakdown)))].sort();
 
   const isBatchFrozen = config?.is_frozen ?? false;
 
@@ -1328,6 +1331,14 @@ export default function AllocationPage() {
                       <th className="w-8 px-3 py-3" />
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Trainee</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">DPI</th>
+                      {allSubjects.map((subj, idx) => (
+                        <th
+                          key={subj}
+                          className={`px-4 py-3 text-center text-xs font-semibold text-tcs-blue dark:text-tcs-blue-light uppercase tracking-wide whitespace-nowrap min-w-[80px]${idx === 0 ? ' border-l border-tcs-gray-200 dark:border-tcs-gray-700' : ''}${idx === allSubjects.length - 1 ? ' border-r border-tcs-gray-200 dark:border-tcs-gray-700' : ''}`}
+                        >
+                          {subj}
+                        </th>
+                      ))}
                       <th className="px-4 py-3 text-center text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Subject</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Composite</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Suggested Stream</th>
@@ -1380,6 +1391,21 @@ export default function AllocationPage() {
                             </span>
                             <p className="text-xs text-tcs-gray-400">/5</p>
                           </td>
+
+                          {/* Per-subject averages */}
+                          {allSubjects.map((subj, idx) => {
+                            const score = alloc.score_breakdown[subj] ?? null;
+                            return (
+                              <td
+                                key={subj}
+                                className={`px-4 py-3 text-center${idx === 0 ? ' border-l border-tcs-gray-100 dark:border-tcs-gray-700' : ''}${idx === allSubjects.length - 1 ? ' border-r border-tcs-gray-100 dark:border-tcs-gray-700' : ''}`}
+                              >
+                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${scoreBg(score)}`}>
+                                  {fmt(score)}
+                                </span>
+                              </td>
+                            );
+                          })}
 
                           {/* Subject score */}
                           <td className="px-4 py-3 text-center">
@@ -1534,6 +1560,7 @@ export default function AllocationPage() {
                             alloc={alloc}
                             streams={streams}
                             aiRec={aiRecommendations.get(alloc.employee_id)}
+                            colSpan={10 + allSubjects.length + (canManage ? 1 : 0)}
                           />
                         ),
                       ];

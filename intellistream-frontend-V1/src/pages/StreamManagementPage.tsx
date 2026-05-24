@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpDown, CheckCircle, Clock, GitBranch, Pencil, Percent, Plus, Sliders, Sparkles, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
-import { aiSuggestionsApi, authApi, streamsApi, syncApi } from '../services/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowUpDown, CheckCircle, Clock, GitBranch, Lock, Pencil, Percent, PieChart, Plus, Sliders, Sparkles, Trash2, UserCircle, Users, XCircle } from 'lucide-react';
+import { aiSuggestionsApi, allocationApi, authApi, streamsApi, syncApi } from '../services/api';
 import type { SyncedBatch } from '../types/sync';
 import type { BatchStream, SMEAssignment, StreamSuggestion, StreamSubjectWeight, WeightProposal } from '../types/streams';
+import type { AllocationConfig } from '../types/allocation';
 import type { UserResponse } from '../types/auth';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/ui/Button';
@@ -988,6 +989,7 @@ function StreamCard({
   stream,
   canManage,
   isAssignedSme,
+  isBatchFrozen,
   onRename,
   onDelete,
   onSetWeights,
@@ -999,6 +1001,7 @@ function StreamCard({
   stream: BatchStream;
   canManage: boolean;
   isAssignedSme: boolean;
+  isBatchFrozen: boolean;
   onRename: (s: BatchStream) => void;
   onDelete: (s: BatchStream) => void;
   onSetWeights: (s: BatchStream) => void;
@@ -1083,9 +1086,11 @@ function StreamCard({
               </button>
               <button
                 onClick={() => onSetTraineePct(stream)}
+                disabled={isBatchFrozen}
                 className="p-1.5 rounded-lg text-tcs-gray-400 hover:text-purple-600 hover:bg-purple-50
-                  dark:hover:text-purple-400 dark:hover:bg-purple-900/20 transition-colors cursor-pointer"
-                title="Set trainee percentage"
+                  dark:hover:text-purple-400 dark:hover:bg-purple-900/20 transition-colors cursor-pointer
+                  disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-tcs-gray-400"
+                title={isBatchFrozen ? 'Batch is frozen — unfreeze in Allocation page first' : 'Set trainee percentage'}
               >
                 <Percent size={13} />
               </button>
@@ -1139,6 +1144,330 @@ function StreamCard({
   );
 }
 
+// ── Split Capacity Modal ─────────────────────────────────────────────
+
+const SPLIT_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4', '#F97316', '#EC4899'];
+
+function SplitCapacityModal({
+  isOpen,
+  onClose,
+  streams,
+  batchName,
+  isBatchFrozen,
+  onSaved,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  streams: BatchStream[];
+  batchName: string;
+  isBatchFrozen: boolean;
+  onSaved: (updated: BatchStream[]) => void;
+}) {
+  const [inputMode, setInputMode] = useState<'pct' | 'count'>('pct');
+  const [rawValues, setRawValues] = useState<Record<number, string>>({});
+  const [totalTrainees, setTotalTrainees] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const init: Record<number, string> = {};
+    streams.forEach((s) => { init[s.id] = String(s.trainee_pct ?? 0); });
+    setRawValues(init);
+    setInputMode('pct');
+    setError('');
+    // fetch trainee count for this batch so count-mode works
+    import('../services/api').then(({ allocationApi }) => {
+      allocationApi.list(batchName)
+        .then(({ data }) => setTotalTrainees(data.length))
+        .catch(() => setTotalTrainees(0));
+    });
+  }, [isOpen, batchName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pctMap = useMemo(() => {
+    const result: Record<number, number> = {};
+    streams.forEach((s) => {
+      const v = Math.max(0, parseFloat(rawValues[s.id] ?? '0') || 0);
+      result[s.id] = inputMode === 'pct'
+        ? v
+        : totalTrainees > 0 ? parseFloat(((v / totalTrainees) * 100).toFixed(2)) : 0;
+    });
+    return result;
+  }, [rawValues, inputMode, streams, totalTrainees]);
+
+  const totalPct = parseFloat(Object.values(pctMap).reduce((s, v) => s + v, 0).toFixed(2));
+  const isOver = totalPct > 100.01;
+  const unallocated = parseFloat(Math.max(0, 100 - totalPct).toFixed(2));
+
+  const handleModeSwitch = (newMode: 'pct' | 'count') => {
+    if (newMode === inputMode || (newMode === 'count' && totalTrainees === 0)) return;
+    const newVals: Record<number, string> = {};
+    streams.forEach((s) => {
+      const p = pctMap[s.id] ?? 0;
+      newVals[s.id] = newMode === 'count'
+        ? String(Math.round((p / 100) * totalTrainees))
+        : String(parseFloat(p.toFixed(2)));
+    });
+    setRawValues(newVals);
+    setInputMode(newMode);
+  };
+
+  const handleChange = (changedId: number, val: string) => {
+    const num = parseFloat(val);
+    // Let the user finish typing — don't auto-adjust on incomplete input
+    if (val === '' || isNaN(num)) {
+      setRawValues((prev) => ({ ...prev, [changedId]: val }));
+      return;
+    }
+
+    const others = streams.filter((s) => s.id !== changedId);
+
+    if (inputMode === 'pct') {
+      const newPct = Math.max(0, Math.min(100, num));
+      const remaining = parseFloat((100 - newPct).toFixed(4));
+      const otherPcts = others.map((s) => Math.max(0, parseFloat(rawValues[s.id] ?? '0') || 0));
+      const othersSum = otherPcts.reduce((a, b) => a + b, 0);
+      const newVals: Record<number, string> = { ...rawValues, [changedId]: String(newPct) };
+      let used = 0;
+      others.forEach((s, i) => {
+        const isLast = i === others.length - 1;
+        const raw = isLast
+          ? parseFloat((remaining - used).toFixed(2))
+          : othersSum > 0
+            ? parseFloat(((otherPcts[i] / othersSum) * remaining).toFixed(2))
+            : parseFloat((remaining / others.length).toFixed(2));
+        const share = Math.max(0, raw);
+        newVals[s.id] = String(share);
+        if (!isLast) used += share;
+      });
+      setRawValues(newVals);
+    } else {
+      const newCount = Math.max(0, Math.min(totalTrainees, Math.round(num)));
+      const remaining = Math.max(0, totalTrainees - newCount);
+      const otherCounts = others.map((s) => Math.max(0, parseInt(rawValues[s.id] ?? '0') || 0));
+      const othersSum = otherCounts.reduce((a, b) => a + b, 0);
+      const newVals: Record<number, string> = { ...rawValues, [changedId]: String(newCount) };
+      let used = 0;
+      others.forEach((s, i) => {
+        const isLast = i === others.length - 1;
+        const share = Math.max(0, isLast
+          ? remaining - used
+          : othersSum > 0
+            ? Math.round((otherCounts[i] / othersSum) * remaining)
+            : Math.floor(remaining / others.length));
+        newVals[s.id] = String(share);
+        if (!isLast) used += share;
+      });
+      setRawValues(newVals);
+    }
+  };
+
+  const distributeEqually = () => {
+    const count = streams.length;
+    if (count === 0) return;
+    const newVals: Record<number, string> = {};
+    if (inputMode === 'pct') {
+      const base = parseFloat((100 / count).toFixed(2));
+      streams.forEach((s, i) => {
+        newVals[s.id] = String(
+          i === count - 1 ? parseFloat((100 - base * (count - 1)).toFixed(2)) : base
+        );
+      });
+    } else {
+      const base = Math.floor(totalTrainees / count);
+      const rem = totalTrainees % count;
+      streams.forEach((s, i) => { newVals[s.id] = String(i < rem ? base + 1 : base); });
+    }
+    setRawValues(newVals);
+  };
+
+  const handleSave = async () => {
+    if (isOver) { setError('Total exceeds 100% — reduce capacity for one or more streams.'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const { streamsApi } = await import('../services/api');
+
+      // Backend validates cumulative total on every individual PATCH.
+      // Save decreasing streams first so the running DB total never exceeds 100%.
+      const ordered = [...streams]
+        .map((s) => ({ stream: s, newPct: pctMap[s.id] ?? 0 }))
+        .sort((a, b) => (a.newPct - (a.stream.trainee_pct ?? 0)) - (b.newPct - (b.stream.trainee_pct ?? 0)));
+
+      const resultMap: Record<number, BatchStream> = {};
+      for (const { stream, newPct } of ordered) {
+        const { data } = await streamsApi.setTraineePct(batchName, stream.id, newPct);
+        resultMap[stream.id] = data;
+      }
+
+      onSaved(streams.map((s) => resultMap[s.id] ?? s));
+      onClose();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail ?? 'Failed to save capacities');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (streams.length === 0) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Split Trainee Capacity" width="w-full max-w-lg">
+      <div className="space-y-5">
+        {/* Frozen banner */}
+        {isBatchFrozen && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-400">
+            <Lock size={13} className="shrink-0" />
+            <span>
+              This batch allocation is <strong>frozen</strong>. Unfreeze it in the Allocation page before changing stream capacities.
+            </span>
+          </div>
+        )}
+
+        {/* Mode toggle */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-tcs-gray-600 dark:text-tcs-gray-400">
+            Set how trainees are split across streams
+          </p>
+          <div className="flex rounded-lg border border-tcs-gray-200 dark:border-tcs-gray-600 overflow-hidden text-xs font-medium">
+            <button
+              onClick={() => handleModeSwitch('pct')}
+              disabled={isBatchFrozen}
+              className={`px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                inputMode === 'pct'
+                  ? 'bg-tcs-blue text-white'
+                  : 'text-tcs-gray-500 dark:text-tcs-gray-400 hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700'
+              }`}
+            >
+              % Percent
+            </button>
+            <button
+              onClick={() => handleModeSwitch('count')}
+              disabled={totalTrainees === 0 || isBatchFrozen}
+              title={isBatchFrozen ? 'Batch is frozen' : totalTrainees === 0 ? 'No trainee data available for this batch' : undefined}
+              className={`px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                inputMode === 'count'
+                  ? 'bg-tcs-blue text-white'
+                  : 'text-tcs-gray-500 dark:text-tcs-gray-400 hover:bg-tcs-gray-50 dark:hover:bg-tcs-gray-700'
+              }`}
+            >
+              # Count
+            </button>
+          </div>
+        </div>
+
+        {/* Split bar */}
+        <div className="h-10 rounded-xl overflow-hidden flex w-full bg-tcs-gray-100 dark:bg-tcs-gray-700">
+          {streams.map((s, i) => {
+            const pct = Math.min(pctMap[s.id] ?? 0, 100);
+            if (pct <= 0) return null;
+            return (
+              <div
+                key={s.id}
+                style={{ width: `${pct}%`, backgroundColor: SPLIT_COLORS[i % SPLIT_COLORS.length], transition: 'width 0.2s ease' }}
+                className="h-full flex items-center justify-center overflow-hidden"
+                title={`${s.name}: ${pct}%`}
+              >
+                {pct > 8 && (
+                  <span className="text-white text-xs font-semibold truncate px-1 select-none">
+                    {pct >= 14 ? s.name.substring(0, 9) : `${pct.toFixed(0)}%`}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {unallocated > 0 && !isOver && (
+            <div
+              style={{ width: `${unallocated}%` }}
+              className="h-full flex items-center justify-center"
+              title={`Unallocated: ${unallocated}%`}
+            >
+              {unallocated > 10 && (
+                <span className="text-xs text-tcs-gray-400 dark:text-tcs-gray-500 select-none">
+                  {unallocated.toFixed(0)}% free
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Stream rows */}
+        <div className="space-y-3">
+          {streams.map((s, i) => {
+            const pct = pctMap[s.id] ?? 0;
+            const secondary = inputMode === 'pct'
+              ? totalTrainees > 0 ? `≈ ${Math.round((pct / 100) * totalTrainees)} trainees` : ''
+              : `≈ ${pct.toFixed(1)}%`;
+
+            return (
+              <div key={s.id} className="flex items-center gap-3">
+                <div
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: SPLIT_COLORS[i % SPLIT_COLORS.length] }}
+                />
+                <span className="flex-1 text-sm font-medium text-tcs-gray-800 dark:text-tcs-gray-200 truncate min-w-0">
+                  {s.name}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={inputMode === 'pct' ? 100 : totalTrainees || undefined}
+                  step={inputMode === 'pct' ? 0.5 : 1}
+                  value={rawValues[s.id] ?? '0'}
+                  onChange={(e) => handleChange(s.id, e.target.value)}
+                  disabled={isBatchFrozen}
+                  className="w-20 rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                    bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                    px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-tcs-blue
+                    disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <span className="w-16 text-xs text-tcs-gray-500 dark:text-tcs-gray-400 shrink-0">
+                  {inputMode === 'pct' ? '%' : 'trainees'}
+                </span>
+                <span className="w-28 text-xs text-tcs-gray-400 dark:text-tcs-gray-500 text-right shrink-0">
+                  {secondary}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Total indicator */}
+        <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium ${
+          isOver
+            ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+            : Math.abs(totalPct - 100) <= 0.01
+              ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+              : 'bg-tcs-gray-50 dark:bg-tcs-gray-900/40 text-tcs-gray-600 dark:text-tcs-gray-400'
+        }`}>
+          <span>Total: {totalPct.toFixed(1)}%</span>
+          {isOver && <span>Exceeds 100% — reduce one or more streams</span>}
+          {!isOver && unallocated > 0.01 && <span>{unallocated.toFixed(1)}% unallocated</span>}
+          {!isOver && Math.abs(totalPct - 100) <= 0.01 && <span>Full allocation</span>}
+        </div>
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-1">
+          <button
+            onClick={distributeEqually}
+            disabled={isBatchFrozen}
+            className="text-xs text-tcs-blue hover:text-tcs-blue/80 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Distribute equally
+          </button>
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} loading={saving} disabled={isOver || isBatchFrozen}>Save Capacities</Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────
 export default function StreamManagementPage() {
   const { user } = useAuth();
@@ -1147,13 +1476,17 @@ export default function StreamManagementPage() {
   const [batches, setBatches] = useState<SyncedBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<SyncedBatch | null>(null);
   const [streams, setStreams] = useState<BatchStream[]>([]);
+  const [allocConfig, setAllocConfig] = useState<AllocationConfig | null>(null);
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [loadingStreams, setLoadingStreams] = useState(false);
   const [batchError, setBatchError] = useState('');
   const [streamError, setStreamError] = useState('');
 
+  const isBatchFrozen = allocConfig?.is_frozen ?? false;
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showSplitModal, setShowSplitModal] = useState(false);
   const [renameTarget, setRenameTarget] = useState<BatchStream | null>(null);
   const [weightsTarget, setWeightsTarget] = useState<BatchStream | null>(null);
   const [reviewTarget, setReviewTarget] = useState<BatchStream | null>(null);
@@ -1186,6 +1519,13 @@ export default function StreamManagementPage() {
   useEffect(() => {
     if (selectedBatch) fetchStreams(selectedBatch.batch_name);
   }, [selectedBatch, fetchStreams]);
+
+  useEffect(() => {
+    if (!selectedBatch) { setAllocConfig(null); return; }
+    allocationApi.getConfig(selectedBatch.batch_name)
+      .then(({ data }) => setAllocConfig(data))
+      .catch(() => setAllocConfig(null));
+  }, [selectedBatch]);
 
   useEffect(() => {
     if (!selectedBatch) return;
@@ -1243,6 +1583,11 @@ export default function StreamManagementPage() {
     setStreams((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
   };
 
+  const handleSplitSaved = (updatedStreams: BatchStream[]) => {
+    const map = Object.fromEntries(updatedStreams.map((s) => [s.id, s]));
+    setStreams((prev) => prev.map((s) => map[s.id] ?? s));
+  };
+
   return (
     <>
       <AISuggestionsModal
@@ -1296,6 +1641,14 @@ export default function StreamManagementPage() {
         stream={traineePctTarget}
         allStreams={streams}
         onSaved={handleTraineePctSaved}
+      />
+      <SplitCapacityModal
+        isOpen={showSplitModal}
+        onClose={() => setShowSplitModal(false)}
+        streams={streams}
+        batchName={selectedBatch?.batch_name ?? ''}
+        isBatchFrozen={isBatchFrozen}
+        onSaved={handleSplitSaved}
       />
 
       {/* Page header */}
@@ -1392,6 +1745,22 @@ export default function StreamManagementPage() {
                       <Sparkles size={15} />
                       AI Suggestions
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowSplitModal(true)}
+                      disabled={streams.length === 0 || isBatchFrozen}
+                      title={
+                        isBatchFrozen
+                          ? 'Batch is frozen — unfreeze in Allocation page first'
+                          : streams.length === 0
+                            ? 'Add streams first'
+                            : 'Split trainee capacity across all streams at once'
+                      }
+                    >
+                      <Lock size={15} className={isBatchFrozen ? '' : 'hidden'} />
+                      <PieChart size={15} className={isBatchFrozen ? 'hidden' : ''} />
+                      Split Capacity
+                    </Button>
                     <Button onClick={() => setShowAddModal(true)}>
                       <Plus size={15} />
                       Add Stream
@@ -1427,6 +1796,7 @@ export default function StreamManagementPage() {
                     stream={stream}
                     canManage={canManage}
                     isAssignedSme={mySmeStreamIds.has(stream.id)}
+                    isBatchFrozen={isBatchFrozen}
                     onRename={setRenameTarget}
                     onDelete={(s) => {
                       if (deletingId !== null) return;
