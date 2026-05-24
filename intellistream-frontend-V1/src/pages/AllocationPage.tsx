@@ -1324,9 +1324,9 @@ export default function AllocationPage() {
                 <p className="text-sm">Run allocation to populate this table</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto overflow-y-auto max-h-[70vh]">
                 <table className="w-full text-sm">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/40">
                       <th className="w-8 px-3 py-3" />
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Trainee</th>

@@ -19,6 +19,7 @@ from .schemas import (
     SMEAssignmentResponse,
     StreamCreate,
     StreamPrioritySet,
+    StreamReorderRequest,
     StreamRename,
     StreamTraineePctSet,
     SubjectWeightResponse,
@@ -109,6 +110,37 @@ def _validate_weights_against_batch(batch_name: str, body: WeightsSet, batch_sub
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Missing weights for batch subjects: {sorted(missing)}",
         )
+
+
+@router.post("/{batch_name}/streams/reorder", response_model=list[BatchStreamResponse])
+def reorder_streams(
+    batch_name: str,
+    body: StreamReorderRequest,
+    db: Session = Depends(get_db),
+    _=Depends(require_manager_or_above),
+):
+    _get_batch_subjects(batch_name, db)
+    streams_map = {
+        s.id: s
+        for s in db.query(BatchStream)
+        .filter(BatchStream.batch_name == batch_name, BatchStream.is_active == True)
+        .all()
+    }
+    for sid in body.stream_ids:
+        if sid not in streams_map:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Stream {sid} not found in batch '{batch_name}'")
+
+    for i, sid in enumerate(body.stream_ids, start=1):
+        streams_map[sid].priority = i
+    ranked_ids = set(body.stream_ids)
+    for sid, stream in streams_map.items():
+        if sid not in ranked_ids:
+            stream.priority = 0
+
+    db.commit()
+
+    all_streams = sorted(streams_map.values(), key=lambda s: (s.priority == 0, s.priority))
+    return [_stream_response(s, db) for s in all_streams]
 
 
 @router.get("/{batch_name}/streams", response_model=list[BatchStreamResponse])

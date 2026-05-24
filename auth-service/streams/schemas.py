@@ -105,6 +105,10 @@ class StreamTraineePctSet(BaseModel):
         return round(v, 2)
 
 
+class StreamReorderRequest(BaseModel):
+    stream_ids: List[int]
+
+
 class SMEAssignRequest(BaseModel):
     user_id: int
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   CheckCheck,
@@ -9,6 +10,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Layers,
+  ClipboardList,
+  ClipboardCheck,
 } from 'lucide-react';
 import { notificationsApi } from '../services/api';
 import type { Notification, NotificationType } from '../types/notifications';
@@ -22,18 +25,32 @@ function timeAgo(iso: string): string {
 }
 
 const TYPE_META: Record<NotificationType, { icon: React.ReactNode; color: string }> = {
-  proposal_submitted: { icon: <GitMerge size={15} />,  color: 'text-tcs-blue' },
-  proposal_approved:  { icon: <ThumbsUp size={15} />,  color: 'text-green-500' },
-  proposal_rejected:  { icon: <ThumbsDown size={15} />, color: 'text-red-500' },
-  sme_assigned:       { icon: <UserCheck size={15} />,  color: 'text-indigo-500' },
-  sme_removed:        { icon: <UserMinus size={15} />,  color: 'text-orange-500' },
-  stream_deleted:     { icon: <Layers size={15} />,     color: 'text-red-400' },
+  proposal_submitted:    { icon: <GitMerge size={15} />,       color: 'text-tcs-blue' },
+  proposal_approved:     { icon: <ThumbsUp size={15} />,       color: 'text-green-500' },
+  proposal_rejected:     { icon: <ThumbsDown size={15} />,     color: 'text-red-500' },
+  sme_assigned:          { icon: <UserCheck size={15} />,      color: 'text-indigo-500' },
+  sme_removed:           { icon: <UserMinus size={15} />,      color: 'text-orange-500' },
+  stream_deleted:        { icon: <Layers size={15} />,         color: 'text-red-400' },
+  sme_request_submitted: { icon: <ClipboardList size={15} />,  color: 'text-tcs-blue' },
+  sme_request_reviewed:  { icon: <ClipboardCheck size={15} />, color: 'text-green-500' },
+};
+
+const TYPE_ROUTE: Record<NotificationType, string> = {
+  proposal_submitted:    '/streams',
+  proposal_approved:     '/streams',
+  proposal_rejected:     '/streams',
+  sme_assigned:          '/streams',
+  sme_removed:           '/streams',
+  stream_deleted:        '/streams',
+  sme_request_submitted: '/allocation',
+  sme_request_reviewed:  '/allocation',
 };
 
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const unread = notifications.filter((n) => !n.is_read).length;
 
@@ -62,14 +79,17 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  async function markRead(n: Notification) {
-    if (n.is_read) return;
-    try {
-      await notificationsApi.markRead(n.id);
-      setNotifications((prev) =>
-        prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)),
-      );
-    } catch { /* ignore */ }
+  async function handleClick(n: Notification) {
+    if (!n.is_read) {
+      try {
+        await notificationsApi.markRead(n.id);
+        setNotifications((prev) =>
+          prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)),
+        );
+      } catch { /* ignore */ }
+    }
+    setOpen(false);
+    navigate(TYPE_ROUTE[n.type]);
   }
 
   async function markAllRead() {
@@ -141,7 +161,7 @@ export default function NotificationBell() {
                 return (
                   <div
                     key={n.id}
-                    onClick={() => markRead(n)}
+                    onClick={() => handleClick(n)}
                     className={[
                       'flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors',
                       'border-b border-tcs-gray-100 dark:border-tcs-gray-700/50 last:border-0',

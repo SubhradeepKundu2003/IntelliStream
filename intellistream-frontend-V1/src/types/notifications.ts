@@ -4,7 +4,9 @@ export type NotificationType =
   | 'proposal_rejected'
   | 'sme_assigned'
   | 'sme_removed'
-  | 'stream_deleted';
+  | 'stream_deleted'
+  | 'sme_request_submitted'
+  | 'sme_request_reviewed';
 
 export interface Notification {
   id: number;

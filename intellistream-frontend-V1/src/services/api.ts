@@ -109,6 +109,8 @@ export const streamsApi = {
                      api.delete(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}`),
   setPriority:     (batchName: string, streamId: number, priority: number) =>
                      api.patch<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/priority`, { priority }),
+  reorder:         (batchName: string, streamIds: number[]) =>
+                     api.post<BatchStream[]>(`/batches/${encodeURIComponent(batchName)}/streams/reorder`, { stream_ids: streamIds }),
   setTraineePct:   (batchName: string, streamId: number, trainee_pct: number) =>
                      api.patch<BatchStream>(`/batches/${encodeURIComponent(batchName)}/streams/${streamId}/trainee-pct`, { trainee_pct }),
   setWeights:      (batchName: string, streamId: number, body: WeightsSet) =>
