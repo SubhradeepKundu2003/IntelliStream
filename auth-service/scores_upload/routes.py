@@ -360,6 +360,22 @@ async def upload_excel(
     )
 
 
+# ── Delete batch ─────────────────────────────────────────────────────
+
+@router.delete("/batch/{batch_name}", status_code=204)
+def delete_batch(
+    batch_name: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_manager_or_above),
+):
+    db.query(SyncedSubjectScore).filter(SyncedSubjectScore.batch_name == batch_name).delete(synchronize_session="fetch")
+    db.query(SyncedDpiRecord).filter(SyncedDpiRecord.batch_name == batch_name).delete(synchronize_session="fetch")
+    db.query(SyncedBatch).filter(SyncedBatch.batch_name == batch_name).delete(synchronize_session="fetch")
+    db.query(ExcelBatchRegistry).filter(ExcelBatchRegistry.batch_name == batch_name).delete(synchronize_session="fetch")
+    db.query(TraineeStreamReference).filter(TraineeStreamReference.batch_name == batch_name).delete(synchronize_session="fetch")
+    db.commit()
+
+
 # ── Stream references ─────────────────────────────────────────────────
 
 @router.get("/stream-references", response_model=list[StreamReferenceResponse])

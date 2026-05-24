@@ -270,6 +270,8 @@ export const scoresUploadApi = {
     api.get<{ batch_name: string; dpi_count: number; has_existing: boolean; excel_managed: boolean; uploaded_at: string | null }>(`/scores/batch-info/${encodeURIComponent(batchName)}`),
   excelBatches: () =>
     api.get<{ batch_name: string; uploaded_at: string; trainee_count: number }[]>('/scores/excel-batches'),
+  deleteBatch: (batchName: string) =>
+    api.delete(`/scores/batch/${encodeURIComponent(batchName)}`),
 };
 
 export const dashboardApi = {

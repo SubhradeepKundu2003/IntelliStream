@@ -659,6 +659,7 @@ export default function AllocationPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'allocated' | 'unallocated'>('all');
   const [suggestedStreamFilter, setSuggestedStreamFilter] = useState<string>('all');
   const [effectiveStreamFilter, setEffectiveStreamFilter] = useState<string>('all');
+  const [subBatchFilter, setSubBatchFilter] = useState<string>('all');
 
   // Config edit state
   const [editScore, setEditScore] = useState(60);
@@ -891,11 +892,17 @@ export default function AllocationPage() {
       (effectiveStreamFilter === '__none__' && a.effective_stream_name === null) ||
       a.effective_stream_name === effectiveStreamFilter;
 
-    return matchesSearch && matchesStatus && matchesSuggested && matchesEffective;
+    const matchesSubBatch =
+      subBatchFilter === 'all' ||
+      (subBatchFilter === '__none__' && !a.sub_batch) ||
+      a.sub_batch === subBatchFilter;
+
+    return matchesSearch && matchesStatus && matchesSuggested && matchesEffective && matchesSubBatch;
   });
 
   const uniqueSuggestedStreams = [...new Set(allocations.map((a) => a.suggested_stream_name).filter(Boolean))] as string[];
   const uniqueEffectiveStreams = [...new Set(allocations.map((a) => a.effective_stream_name).filter(Boolean))] as string[];
+  const uniqueSubBatches = [...new Set(allocations.map((a) => a.sub_batch).filter(Boolean))] as string[];
   const allSubjects = [...new Set(allocations.flatMap((a) => Object.keys(a.score_breakdown)))].sort();
 
   const isBatchFrozen = config?.is_frozen ?? false;
@@ -916,7 +923,7 @@ export default function AllocationPage() {
         {/* Batch selector */}
         <select
           value={selectedBatch}
-          onChange={(e) => { setSelectedBatch(e.target.value); setSearch(''); setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); }}
+          onChange={(e) => { setSelectedBatch(e.target.value); setSearch(''); setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); setSubBatchFilter('all'); }}
           className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
             bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
             px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tcs-blue min-w-[200px]"
@@ -1299,10 +1306,31 @@ export default function AllocationPage() {
                     </div>
                   )}
 
+                  {/* Sub batch filter */}
+                  {uniqueSubBatches.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Filter size={12} className="text-tcs-gray-400 shrink-0" />
+                      <span className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 whitespace-nowrap">Sub Batch:</span>
+                      <select
+                        value={subBatchFilter}
+                        onChange={(e) => setSubBatchFilter(e.target.value)}
+                        className="rounded-lg border border-tcs-gray-300 dark:border-tcs-gray-600
+                          bg-tcs-white dark:bg-tcs-gray-700 text-tcs-gray-900 dark:text-tcs-gray-100
+                          px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-tcs-blue"
+                      >
+                        <option value="all">All</option>
+                        <option value="__none__">None</option>
+                        {uniqueSubBatches.sort().map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Clear filters */}
-                  {(statusFilter !== 'all' || suggestedStreamFilter !== 'all' || effectiveStreamFilter !== 'all') && (
+                  {(statusFilter !== 'all' || suggestedStreamFilter !== 'all' || effectiveStreamFilter !== 'all' || subBatchFilter !== 'all') && (
                     <button
-                      onClick={() => { setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); }}
+                      onClick={() => { setStatusFilter('all'); setSuggestedStreamFilter('all'); setEffectiveStreamFilter('all'); setSubBatchFilter('all'); }}
                       className="text-xs text-tcs-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center gap-1"
                     >
                       <X size={11} />
@@ -1330,6 +1358,7 @@ export default function AllocationPage() {
                     <tr className="border-b border-tcs-gray-200 dark:border-tcs-gray-700 bg-tcs-gray-50 dark:bg-tcs-gray-900/40">
                       <th className="w-8 px-3 py-3" />
                       <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Trainee</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">Sub Batch</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-tcs-gray-500 dark:text-tcs-gray-400 uppercase tracking-wide">DPI</th>
                       {allSubjects.map((subj, idx) => (
                         <th
@@ -1382,6 +1411,17 @@ export default function AllocationPage() {
                               <p className="font-medium text-tcs-gray-900 dark:text-tcs-gray-100">{alloc.trainee_name}</p>
                             </div>
                             <p className="text-xs text-tcs-gray-400">{alloc.employee_id}</p>
+                          </td>
+
+                          {/* Sub Batch */}
+                          <td className="px-4 py-3">
+                            {alloc.sub_batch ? (
+                              <span className="text-xs font-medium bg-tcs-gray-100 dark:bg-tcs-gray-700 text-tcs-gray-600 dark:text-tcs-gray-300 px-2 py-0.5 rounded">
+                                {alloc.sub_batch}
+                              </span>
+                            ) : (
+                              <span className="text-tcs-gray-300 dark:text-tcs-gray-600 text-xs">—</span>
+                            )}
                           </td>
 
                           {/* DPI */}
@@ -1560,7 +1600,7 @@ export default function AllocationPage() {
                             alloc={alloc}
                             streams={streams}
                             aiRec={aiRecommendations.get(alloc.employee_id)}
-                            colSpan={10 + allSubjects.length + (canManage ? 1 : 0)}
+                            colSpan={11 + allSubjects.length + (canManage ? 1 : 0)}
                           />
                         ),
                       ];

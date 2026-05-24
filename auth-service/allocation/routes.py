@@ -18,6 +18,8 @@ from notifications.service import create_notification
 from streams.models import BatchStream, BatchStreamSME
 
 from .ai_recommender import generate_allocation_recommendations
+from sync.models import SyncedDpiRecord
+
 from .models import AllocationAIRecommendation, AllocationConfig, RequestStatus, SMEAssociateRequest, TraineeAllocation
 from .schemas import (
     AllocationAIRecommendationResponse,
@@ -44,7 +46,11 @@ def _stream_name(stream_id: int | None, db: Session) -> str | None:
     return s.name if s else None
 
 
-def _build_response(alloc: TraineeAllocation, db: Session) -> TraineeAllocationResponse:
+def _build_response(alloc: TraineeAllocation, db: Session, sub_batch: str | None = None) -> TraineeAllocationResponse:
+    if sub_batch is None:
+        dpi_rec = db.query(SyncedDpiRecord.sub_batch).filter_by(batch_name=alloc.batch_name, trainee_id=alloc.employee_id).first()
+        sub_batch = dpi_rec.sub_batch if dpi_rec else None
+
     breakdown: dict[str, float] = {}
     try:
         breakdown = json.loads(alloc.score_breakdown_json or "{}")
@@ -96,6 +102,7 @@ def _build_response(alloc: TraineeAllocation, db: Session) -> TraineeAllocationR
         is_frozen=alloc.is_frozen,
         frozen_at=alloc.frozen_at,
         frozen_by_email=alloc.frozen_by_email,
+        sub_batch=sub_batch,
         score_breakdown=breakdown,
         all_stream_scores=all_stream_scores,
     )
@@ -159,7 +166,9 @@ def get_allocations(
         .order_by(TraineeAllocation.trainee_name)
         .all()
     )
-    return [_build_response(r, db) for r in rows]
+    dpi_recs = db.query(SyncedDpiRecord.trainee_id, SyncedDpiRecord.sub_batch).filter_by(batch_name=batch_name).all()
+    sub_batch_map: dict[str, str | None] = {r.trainee_id: r.sub_batch for r in dpi_recs}
+    return [_build_response(r, db, sub_batch=sub_batch_map.get(r.employee_id)) for r in rows]
 
 
 # ── Manual override ──────────────────────────────────────────────────────────
@@ -318,6 +327,13 @@ def export_allocation(
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No allocations found for this batch.")
 
+    dpi_records = (
+        db.query(SyncedDpiRecord.trainee_id, SyncedDpiRecord.sub_batch)
+        .filter_by(batch_name=batch_name)
+        .all()
+    )
+    sub_batch_map: dict[str, str | None] = {r.trainee_id: r.sub_batch for r in dpi_records}
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Allocation"
@@ -337,7 +353,7 @@ def export_allocation(
             pass
     sorted_subjects = sorted(all_subjects)
     full_headers = (
-        ["Employee ID", "Trainee Name", "DPI Score"]
+        ["Employee ID", "Trainee Name", "Sub Batch", "DPI Score"]
         + [s.title() for s in sorted_subjects]
         + ["Effective Stream"]
     )
@@ -360,7 +376,7 @@ def export_allocation(
 
         subject_data = [round(breakdown.get(s, 0), 2) for s in sorted_subjects]
         full_row = (
-            [alloc.employee_id, alloc.trainee_name, alloc.dpi_score]
+            [alloc.employee_id, alloc.trainee_name, sub_batch_map.get(alloc.employee_id), alloc.dpi_score]
             + subject_data
             + [effective_name or "Unallocated"]
         )

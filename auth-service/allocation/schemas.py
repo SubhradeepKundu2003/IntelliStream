@@ -63,6 +63,7 @@ class TraineeAllocationResponse(BaseModel):
     is_frozen: bool
     frozen_at: datetime | None
     frozen_by_email: str | None
+    sub_batch: str | None
     score_breakdown: dict[str, float]          # subject → avg score
     all_stream_scores: list[StreamScoreDetail]  # sorted by composite desc
     model_config = {"from_attributes": True}

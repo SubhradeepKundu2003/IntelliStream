@@ -36,6 +36,7 @@ export interface TraineeAllocation {
   is_frozen: boolean;
   frozen_at: string | null;
   frozen_by_email: string | null;
+  sub_batch: string | null;
   score_breakdown: Record<string, number>;
   all_stream_scores: StreamScoreDetail[];
 }

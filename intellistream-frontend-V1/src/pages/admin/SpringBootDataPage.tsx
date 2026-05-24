@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, RefreshCw, Search, Upload, X } from 'lucide-react';
+import { Download, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { scoresUploadApi, syncApi } from '../../services/api';
 import type { SyncedBatch, SyncedDpiRecord, SyncedSubjectScore, SyncStatus } from '../../types/sync';
 import type { RowResult, ScoresUploadResult, StreamReference } from '../../types/scores_upload';
@@ -77,7 +77,7 @@ function DpiChip({ value }: { value: number }) {
 }
 
 // ── Batches tab ──────────────────────────────────────────────────────
-function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
+function BatchesTable({ rows, onDelete }: { rows: SyncedBatch[]; onDelete: (batchName: string) => void }) {
   const [search, setSearch] = useState('');
   const filtered = rows.filter((r) =>
     r.batch_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -94,12 +94,13 @@ function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Batch Name</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Subjects</th>
               <th className="text-left px-5 py-3 font-semibold text-tcs-gray-600 dark:text-tcs-gray-400">Trainees</th>
+              <th className="px-5 py-3" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="text-center py-12 text-tcs-gray-400">
+                <td colSpan={4} className="text-center py-12 text-tcs-gray-400">
                   {search ? 'No batches match your search.' : 'No batches found.'}
                 </td>
               </tr>
@@ -132,6 +133,15 @@ function BatchesTable({ rows }: { rows: SyncedBatch[] }) {
                   </td>
                   <td className="px-5 py-3.5 text-tcs-gray-500 dark:text-tcs-gray-400">
                     {b.trainee_count}
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <button
+                      onClick={() => onDelete(b.batch_name)}
+                      className="p-1.5 rounded text-tcs-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="Delete batch"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -531,6 +541,8 @@ export default function SpringBootDataPage() {
   const [syncMsg, setSyncMsg] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [syncDialog, setSyncDialog] = useState<{ batches: { batch_name: string; trainee_count: number }[] } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -583,6 +595,20 @@ export default function SpringBootDataPage() {
     await doSync(false);
   };
 
+  const handleDeleteBatch = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await scoresUploadApi.deleteBatch(deleteTarget);
+      setDeleteTarget(null);
+      await fetchAll();
+    } catch {
+      // keep dialog open so user sees the failure
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const tabs: Tab[] = ['Batches', 'DPI Records', 'Subject Scores'];
   const counts: Record<Tab, number> = {
     'Batches': batches.length,
@@ -631,6 +657,35 @@ export default function SpringBootDataPage() {
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSyncDialog(null)}>
                 Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-tcs-white dark:bg-tcs-gray-800 rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/30">
+                <Trash2 size={18} className="text-red-600 dark:text-red-400" />
+              </div>
+              <h2 className="text-base font-semibold text-tcs-gray-900 dark:text-tcs-gray-100">Delete Batch</h2>
+            </div>
+            <p className="text-sm text-tcs-gray-600 dark:text-tcs-gray-300 mb-1">
+              This will permanently delete all data for:
+            </p>
+            <p className="text-sm font-semibold text-tcs-gray-900 dark:text-tcs-gray-100 mb-4">
+              "{deleteTarget}"
+            </p>
+            <p className="text-xs text-tcs-gray-500 dark:text-tcs-gray-400 mb-5">
+              DPI records, subject scores, stream references, and the batch entry will all be removed. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+              <Button size="sm" onClick={handleDeleteBatch} loading={deleting}
+                className="bg-red-600 hover:bg-red-700 text-white border-red-600">
+                <Trash2 size={13} />Delete
               </Button>
             </div>
           </div>
@@ -710,7 +765,7 @@ export default function SpringBootDataPage() {
         </div>
       ) : (
         <>
-          {activeTab === 'Batches'       && <BatchesTable rows={batches} />}
+          {activeTab === 'Batches'       && <BatchesTable rows={batches} onDelete={setDeleteTarget} />}
           {activeTab === 'DPI Records'   && <DpiTable rows={dpi} batchNames={batches.map((b) => b.batch_name)} streamRefs={streamRefs} />}
           {activeTab === 'Subject Scores' && <ScoresTable rows={scores} batchNames={batches.map((b) => b.batch_name)} />}
         </>
